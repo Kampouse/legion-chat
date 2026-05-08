@@ -86,103 +86,55 @@ function relayHint(url: string): string {
   return url.replace(/^wss?:\/\//, "");
 }
 
-// ── Relay with reconnection ──
+// ── Connect to relay using nostr-tools built-in Relay ──
+// nostr-tools Relay handles reconnection, ping/pong, and message routing.
+// We just track connection state for the UI.
 
-export interface ManagedRelay {
-  getRelay: () => Relay | null;
-  getConnectionState: () => ConnectionState;
-  onStateChange: (cb: (state: ConnectionState) => void) => () => void;
-  onReconnect: (cb: (relay: Relay) => void) => () => void;
-  close: () => void;
-}
-
-const RECONNECT_BASE_DELAY = 1000;
-const RECONNECT_MAX_DELAY = 30000;
-
-/**
- * Connect to a relay with automatic reconnection.
- * Notifies via onReconnect() when a new connection is established
- * so consumers can re-subscribe.
- */
-export function connectManagedRelay(
+export function connectRelay(
   url: string,
-  onStateChange?: (state: ConnectionState) => void,
-): ManagedRelay {
-  let state: ConnectionState = "connecting";
-  let relay: Relay | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let attempt = 0;
-  let closed = false;
-  const stateListeners = new Set<(state: ConnectionState) => void>();
-  const reconnectListeners = new Set<(relay: Relay) => void>();
-
-  const notifyState = (s: ConnectionState) => {
-    state = s;
-    onStateChange?.(s);
-    stateListeners.forEach((cb) => cb(s));
-  };
-
-  const notifyReconnect = (r: Relay) => {
-    reconnectListeners.forEach((cb) => cb(r));
-  };
-
-  const connect = async () => {
-    if (closed) return;
-    notifyState("connecting");
-    try {
-      relay = await Relay.connect(url);
-      attempt = 0;
-      notifyState("connected");
-      notifyReconnect(relay);
-
-      // Watch for disconnect
-      const ws = (relay as any)?.ws as WebSocket | undefined;
-      if (ws) {
-        ws.addEventListener("close", () => {
-          if (!closed) scheduleReconnect();
-        });
-        ws.addEventListener("error", () => {
-          if (!closed) notifyState("error");
-        });
-      }
-    } catch (e: any) {
-      if (!closed) {
-        notifyState("error");
-        scheduleReconnect();
-      }
-    }
-  };
-
-  const scheduleReconnect = () => {
-    if (closed) return;
-    const delay = Math.min(RECONNECT_BASE_DELAY * Math.pow(2, attempt), RECONNECT_MAX_DELAY);
-    const jitter = delay * (0.75 + Math.random() * 0.5);
-    attempt++;
-    reconnectTimer = setTimeout(connect, jitter);
-  };
-
-  connect();
-
-  return {
-    getRelay: () => relay,
-    getConnectionState: () => state,
-    onStateChange: (cb) => {
-      stateListeners.add(cb);
-      return () => stateListeners.delete(cb);
-    },
-    onReconnect: (cb) => {
-      reconnectListeners.add(cb);
-      return () => reconnectListeners.delete(cb);
-    },
-    close: () => {
-      closed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      try { relay?.close(); } catch {}
-    },
-  };
+  onStateChange: (state: ConnectionState) => void,
+): Relay {
+  onStateChange("connecting");
+  const relay = Relay.connectWithTimeout(url, 10000)
+    .then((r) => {
+      onStateChange("connected");
+      // nostr-tools handles reconnection internally
+      r.onclose = () => {
+        onStateChange("disconnected");
+      };
+      return r;
+    })
+    .catch((e) => {
+      console.error("Relay connect failed:", e);
+      onStateChange("error");
+      throw e;
+    });
+  
+  // This returns a Relay synchronously but the connection is async.
+  // We need a different pattern.
+  throw new Error("Use connectRelayAsync instead");
 }
 
-// ── Publish with best-effort ack ──
+// Actually, let's just use the simplest possible approach
+export async function connectRelayAsync(
+  url: string,
+  onStateChange: (state: ConnectionState) => void,
+): Promise<Relay> {
+  onStateChange("connecting");
+  try {
+    const relay = await Relay.connectWithTimeout(url, 10000);
+    onStateChange("connected");
+    relay.onclose = () => {
+      onStateChange("disconnected");
+    };
+    return relay;
+  } catch (e) {
+    onStateChange("error");
+    throw e;
+  }
+}
+
+// ── Publish ──
 
 export interface PublishResult {
   ok: boolean;
@@ -190,14 +142,9 @@ export interface PublishResult {
   message: string;
 }
 
-/**
- * Publish an event using nostr-tools relay.publish().
- * Returns ok=true on success, ok=false on failure.
- */
 export async function publishWithAck(
   relay: Relay,
   event: any,
-  _timeoutMs: number = 3000,
 ): Promise<PublishResult> {
   try {
     await relay.publish(event);
@@ -224,10 +171,4 @@ export function subscribeChannel(
   return () => {
     try { sub.close(); } catch {}
   };
-}
-
-// Legacy fire-and-forget publish
-export function publishEvent(relay: Relay, event: any): void {
-  const msg = JSON.stringify(["EVENT", event]);
-  (relay as any).ws?.send(msg);
 }

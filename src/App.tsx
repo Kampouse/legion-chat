@@ -16,7 +16,7 @@ import {
   getPubkey,
   signChallenge,
   signChannelMessage,
-  connectManagedRelay,
+  connectRelayAsync,
   subscribeChannel,
   publishWithAck,
   type NostrSigner,
@@ -116,7 +116,7 @@ function ChatApp() {
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [connState, setConnState] = useState<ConnectionState>("disconnected");
 
-  const managedRef = useRef<ReturnType<typeof connectManagedRelay> | null>(null);
+  const relayRef = useRef<Relay | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -244,19 +244,8 @@ function ChatApp() {
     });
 
     init();
-    return () => { unsub?.(); managed.close(); managedRef.current = null; };
+    return () => { unsub?.(); managed.close(); relayRef.current = null; };
   }, [screen, accountId, relayUrl, signer, myPubkey]);
-
-  // Wait for managed relay to reach connected state
-  async function waitForConnection(m: ReturnType<typeof connectManagedRelay>, timeoutMs: number): Promise<void> {
-    const start = Date.now();
-    while (m.getConnectionState() !== "connected" && Date.now() - start < timeoutMs) {
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    if (m.getConnectionState() !== "connected") {
-      throw new Error("Relay connection timed out");
-    }
-  }
 
   // Auto-scroll logic
   useEffect(() => {
@@ -323,7 +312,7 @@ function ChatApp() {
 
   const handleSend = async () => {
     if (!input.trim() || !signer) return;
-    const relay = managedRef.current?.getRelay();
+    const relay = relayRef.current;
     if (!relay || connState !== "connected") {
       setError("Not connected to relay. Message will send when reconnected.");
       return;
