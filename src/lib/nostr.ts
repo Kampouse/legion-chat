@@ -86,43 +86,13 @@ function relayHint(url: string): string {
   return url.replace(/^wss?:\/\//, "");
 }
 
-// ── Connect to relay using nostr-tools built-in Relay ──
-// nostr-tools Relay handles reconnection, ping/pong, and message routing.
-// We just track connection state for the UI.
-
-export function connectRelay(
-  url: string,
-  onStateChange: (state: ConnectionState) => void,
-): Relay {
-  onStateChange("connecting");
-  const relay = Relay.connectWithTimeout(url, 10000)
-    .then((r) => {
-      onStateChange("connected");
-      // nostr-tools handles reconnection internally
-      r.onclose = () => {
-        onStateChange("disconnected");
-      };
-      return r;
-    })
-    .catch((e) => {
-      console.error("Relay connect failed:", e);
-      onStateChange("error");
-      throw e;
-    });
-  
-  // This returns a Relay synchronously but the connection is async.
-  // We need a different pattern.
-  throw new Error("Use connectRelayAsync instead");
-}
-
-// Actually, let's just use the simplest possible approach
 export async function connectRelayAsync(
   url: string,
   onStateChange: (state: ConnectionState) => void,
 ): Promise<Relay> {
   onStateChange("connecting");
   try {
-    const relay = await Relay.connectWithTimeout(url, 10000);
+    const relay = await Relay.connect(url);
     onStateChange("connected");
     relay.onclose = () => {
       onStateChange("disconnected");
