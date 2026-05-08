@@ -191,46 +191,20 @@ export interface PublishResult {
 }
 
 /**
- * Publish an event. Waits up to timeoutMs for relay OK response.
- * If no response received, returns ok=true (fire-and-forget assumption).
- * Only returns ok=false if relay explicitly rejects.
+ * Publish an event using nostr-tools relay.publish().
+ * Returns ok=true on success, ok=false on failure.
  */
-export function publishWithAck(
+export async function publishWithAck(
   relay: Relay,
   event: any,
-  timeoutMs: number = 3000,
+  _timeoutMs: number = 3000,
 ): Promise<PublishResult> {
-  return new Promise((resolve) => {
-    const ws = (relay as any).ws as WebSocket | undefined;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      resolve({ ok: false, eventId: event.id, message: "WebSocket not connected" });
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      // No OK received — assume success (relay may not send OK for kind 41)
-      cleanup();
-      resolve({ ok: true, eventId: event.id, message: "sent (unconfirmed)" });
-    }, timeoutMs);
-
-    const handler = (ev: MessageEvent) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg[0] === "OK" && msg[1] === event.id) {
-          cleanup();
-          resolve({ ok: msg[2], eventId: msg[1], message: msg[3] || "" });
-        }
-      } catch {}
-    };
-
-    const cleanup = () => {
-      clearTimeout(timer);
-      ws.removeEventListener("message", handler);
-    };
-
-    ws.addEventListener("message", handler);
-    ws.send(JSON.stringify(["EVENT", event]));
-  });
+  try {
+    await relay.publish(event);
+    return { ok: true, eventId: event.id, message: "" };
+  } catch (e: any) {
+    return { ok: false, eventId: event.id, message: e.message || "publish failed" };
+  }
 }
 
 // ── Subscribe to channel ──
@@ -240,25 +214,15 @@ export function subscribeChannel(
   channelId: string,
   onMessage: (msg: any) => void,
 ): () => void {
-  const ws = (relay as any).ws as WebSocket | undefined;
-  if (!ws) return () => {};
-  const subId = "legion-" + Math.random().toString(36).slice(2);
-  const filter = JSON.stringify(["REQ", subId, { kinds: [41], "#e": [channelId], limit: 500 }]);
-  ws.send(filter);
-
-  const handler = (ev: MessageEvent) => {
-    try {
-      const msg = JSON.parse(ev.data);
-      if (msg[0] === "EVENT" && msg[1] === subId) {
-        onMessage(msg[2]);
-      }
-    } catch {}
-  };
-  ws.addEventListener("message", handler);
-
+  const filter = { kinds: [41], "#e": [channelId], limit: 500 };
+  const sub = relay.subscribe([filter], {
+    onevent: (event: any) => {
+      onMessage(event);
+    },
+    oneose: () => {},
+  });
   return () => {
-    ws.removeEventListener("message", handler);
-    try { ws.send(JSON.stringify(["CLOSE", subId])); } catch {}
+    try { sub.close(); } catch {}
   };
 }
 
