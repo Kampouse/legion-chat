@@ -16,6 +16,8 @@ import {
   getPubkey,
   signChallenge,
   signChannelMessage,
+  signProfileUpdate,
+  type NostrProfile,
   connectRelayAsync,
   subscribeChannel,
   publishWithAck,
@@ -118,6 +120,8 @@ function ChatApp() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [editProfile, setEditProfile] = useState<NostrProfile | null>(null);
 
   const accountId = wallet.accountId || null;
 
@@ -345,7 +349,7 @@ function ChatApp() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{accountId}</span>
-            <button onClick={handleSignOut} className="text-xs px-2 py-1 rounded" style={{ color: "var(--muted)" }}>Sign out</button>
+            <button onClick={() => setShowSettings(true)} className="text-lg px-2 py-1 rounded" style={{ color: "var(--muted)" }}>⚙️</button>
           </div>
         </header>
       )}
@@ -473,6 +477,93 @@ function ChatApp() {
               >
                 {sending ? "..." : "↑"}
               </button>
+            </div>
+          </div>
+        )}
+        {showSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.6)" }}>
+            <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden max-h-[90vh] flex flex-col" style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}>
+              <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
+                <span className="font-semibold text-sm">Settings</span>
+                <button onClick={() => { setShowSettings(false); setEditProfile(null); }} className="text-lg" style={{ color: "var(--muted)" }}>✕</button>
+              </div>
+              <div className="p-4 space-y-3 overflow-y-auto">
+                <div>
+                  <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Public Key</label>
+                  <div className="px-3 py-2 rounded-lg text-xs font-mono break-all" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{myPubkey}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider" style={{ color: "var(--muted)" }}>NEAR Account</label>
+                  <div className="px-3 py-2 rounded-lg text-xs font-mono" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{accountId}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Relay</label>
+                  <div className="px-3 py-2 rounded-lg text-xs font-mono" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{relayUrl}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Channel ID</label>
+                  <div className="px-3 py-2 rounded-lg text-xs font-mono break-all" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{CHANNEL_ID}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Signer</label>
+                  <div className="px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{_signerType === "bunker" ? "🔗 NIP-46 Bunker" : _signerType === "extension" ? "🧩 Browser Extension" : _signerType === "local" ? "🔑 Local Key" : "Unknown"}</div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium mb-1 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Connection</label>
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}>
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: connInfo.color }} />
+                    <span style={{ color: "var(--text)" }}>{connInfo.label}</span>
+                  </div>
+                </div>
+                <div className="pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--muted)" }}>Nostr Profile</label>
+                    {editProfile === null && (
+                      <button
+                        onClick={() => setEditProfile({ name: profiles[myPubkey]?.name || "", about: profiles[myPubkey]?.about || "", picture: profiles[myPubkey]?.picture || "", nip05: profiles[myPubkey]?.nip05 || "", display_name: profiles[myPubkey]?.display_name || "", website: profiles[myPubkey]?.website || "" })}
+                        className="text-[10px] font-medium"
+                        style={{ color: "var(--accent)" }}
+                      >Edit</button>
+                    )}
+                  </div>
+                  {editProfile !== null ? (
+                    <div className="space-y-2">
+                      <input type="text" value={editProfile.name || ""} onChange={(e) => setEditProfile({ ...editProfile, name: e.target.value })} placeholder="Name"
+                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                      <input type="text" value={editProfile.display_name || ""} onChange={(e) => setEditProfile({ ...editProfile, display_name: e.target.value })} placeholder="Display name"
+                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                      <input type="text" value={editProfile.picture || ""} onChange={(e) => setEditProfile({ ...editProfile, picture: e.target.value })} placeholder="Picture URL"
+                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                      <input type="text" value={editProfile.about || ""} onChange={(e) => setEditProfile({ ...editProfile, about: e.target.value })} placeholder="About"
+                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                      <input type="text" value={editProfile.nip05 || ""} onChange={(e) => setEditProfile({ ...editProfile, nip05: e.target.value })} placeholder="NIP-05 (user@domain.com)"
+                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                      <input type="text" value={editProfile.website || ""} onChange={(e) => setEditProfile({ ...editProfile, website: e.target.value })} placeholder="Website"
+                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+                      <div className="flex gap-2">
+                        <button onClick={async () => {
+                          if (!signer || !relayRef.current) return;
+                          try {
+                            const event = await signProfileUpdate(signer, editProfile);
+                            await relayRef.current.publish(event);
+                            setProfiles((prev) => ({ ...prev, [myPubkey]: editProfile }));
+                            setEditProfile(null);
+                          } catch (e: any) { setError("Profile update failed: " + e.message); }
+                        }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-black" style={{ backgroundColor: "var(--accent)" }}>Save</button>
+                        <button onClick={() => setEditProfile(null)} className="px-4 py-2 rounded-lg text-xs" style={{ border: "1px solid var(--border)", color: "var(--muted)" }}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 rounded-lg text-xs space-y-0.5" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>
+                      {profiles[myPubkey]?.name && <p><span style={{ color: "var(--muted)" }}>Name:</span> {profiles[myPubkey].name}</p>}
+                      {profiles[myPubkey]?.display_name && <p><span style={{ color: "var(--muted)" }}>Display:</span> {profiles[myPubkey].display_name}</p>}
+                      {profiles[myPubkey]?.about && <p><span style={{ color: "var(--muted)" }}>About:</span> {profiles[myPubkey].about}</p>}
+                      {!profiles[myPubkey]?.name && !profiles[myPubkey]?.about && <p style={{ color: "var(--muted)" }}>No profile set yet</p>}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => { setShowSettings(false); handleSignOut(); }} className="w-full py-2.5 rounded-lg text-xs font-medium text-red-400" style={{ border: "1px solid rgba(239,68,68,0.3)" }}>Sign out</button>
+              </div>
             </div>
           </div>
         )}

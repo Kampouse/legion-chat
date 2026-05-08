@@ -86,6 +86,27 @@ function relayHint(url: string): string {
   return url.replace(/^wss?:\/\//, "");
 }
 
+// ── NIP-01 Profile (kind 0) ──
+
+export interface NostrProfile {
+  name?: string;
+  about?: string;
+  picture?: string;
+  nip05?: string;
+  display_name?: string;
+  website?: string;
+  lud16?: string;
+}
+
+export async function signProfileUpdate(signer: NostrSigner, profile: NostrProfile): Promise<any> {
+  return signer.signEvent({
+    kind: 0,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [],
+    content: JSON.stringify(profile),
+  });
+}
+
 export async function connectRelayAsync(
   url: string,
   onStateChange: (state: ConnectionState) => void,
