@@ -341,7 +341,7 @@ function ChatApp() {
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: connInfo.color }} title={connInfo.label} />
             <span className="font-semibold text-sm">Legion Chat</span>
-            <span className="text-xs" style={{ color: "var(--muted)" }}>• {connInfo.label}</span>
+
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{accountId}</span>
