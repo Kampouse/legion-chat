@@ -34,14 +34,6 @@ interface Message {
   pending?: boolean;
 }
 
-interface Profile {
-  name?: string;
-  picture?: string;
-  display_name?: string;
-  about?: string;
-  nip05?: string;
-}
-
 // ── Content parser ──
 function parseContent(content: string) {
   const segments: { type: "text" | "link"; value: string }[] = [];
@@ -89,7 +81,7 @@ function ChatApp() {
   const [screen, setScreen] = useState<Screen>("login");
   const [error, setError] = useState<string>("");
 
-  const [_signerType, setSignerType] = useState<SignerType | null>(null);
+  const [signerType, setSignerType] = useState<SignerType | null>(null);
   const [signer, setSigner] = useState<NostrSigner | null>(null);
   const [myPubkey, setMyPubkey] = useState<string>("");
   const [nsec, setNsec] = useState<string>("");
@@ -99,8 +91,9 @@ function ChatApp() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [_bindings, setBindings] = useState<Record<string, { npub: string; relay: string }>>({});
+  const [bindings, setBindings] = useState<Record<string, { npub: string; relay: string }>>({});
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  const [unread, setUnread] = useState<Record<string, number>>({});
 
   const relayRef = useRef<Relay | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -109,6 +102,20 @@ function ChatApp() {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const accountId = wallet.accountId || null;
+
+  // Track unread in background
+  useEffect(() => {
+    if (screen !== "chat") return;
+    const saved = localStorage.getItem(`legion:unread:${accountId}`);
+    if (saved) {
+      try { setUnread(JSON.parse(saved)); } catch {}
+    }
+  }, [screen, accountId]);
+
+  useEffect(() => {
+    if (screen !== "chat" || !accountId) return;
+    localStorage.setItem(`legion:unread:${accountId}`, JSON.stringify(unread));
+  }, [unread, screen, accountId]);
 
   useEffect(() => {
     if (wallet.isConnected && accountId) setScreen("checking");
@@ -203,7 +210,13 @@ function ChatApp() {
             if (prev.some((m) => m.id === msg.id)) return prev;
             return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
           });
-
+          // Increment unread if not from us and not viewing chat
+          if (event.pubkey !== myPubkey) {
+            setUnread((prev) => ({
+              ...prev,
+              [boundAccount[0]]: (prev[boundAccount[0]] || 0) + 1,
+            }));
+          }
         });
       } catch (e: any) { setError("Failed to connect: " + (e.message || e)); }
     })();
@@ -221,6 +234,7 @@ function ChatApp() {
     const el = scrollRef.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const wasAuto = autoScroll;
     setAutoScroll(atBottom);
     setShowScrollBtn(!atBottom);
   }, [autoScroll]);
@@ -229,6 +243,8 @@ function ChatApp() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setAutoScroll(true);
     setShowScrollBtn(false);
+    // Clear unread
+    setUnread({});
   };
 
   const handleSignIn = () => wallet.connect();
@@ -307,12 +323,10 @@ function ChatApp() {
   const handleSignOut = () => {
     wallet.disconnect(); signer?.close?.();
     setSigner(null); setNsec(""); setMyPubkey(""); setSignerType(null); setMessages([]);
-    setProfiles({}); setBindings({});
+    setProfiles({}); setBindings({}); setMobileShowChat(false);
     if (accountId) localStorage.removeItem(`legion:signer:${accountId}`);
     setScreen("login");
   };
-
-
 
   return (
     <div className="flex flex-col h-[100dvh]" style={{ backgroundColor: "var(--bg)" }}>
@@ -351,18 +365,13 @@ function ChatApp() {
           </div>
         )}
         {screen === "chat" && (
-          <div className="flex w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
-            {/* Chat area — full width, no sidebar */}
+          <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
+            {/* Messages */}
             <div
-              className="flex flex-col flex-1 min-w-0"
-              style={{ backgroundColor: "var(--bg)" }}
+              ref={scrollRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-4 space-y-1"
             >
-              {/* Messages */}
-              <div
-                ref={scrollRef}
-                onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-4 space-y-1"
-              >
                 {messages.length === 0 && (
                   <div className="text-center py-12">
                     <p className="text-sm" style={{ color: "var(--muted)" }}>No messages yet. Be the first to speak.</p>
@@ -467,7 +476,6 @@ function ChatApp() {
                   {sending ? "..." : "↑"}
                 </button>
               </div>
-            </div>
           </div>
         )}
       </main>
@@ -480,7 +488,6 @@ export default function App() {
 }
 
 // ── Components ──
-
 
 function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
   return (
