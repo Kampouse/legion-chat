@@ -192,8 +192,6 @@ function ChatApp() {
       const cache = bindingsRef.current;
       if (!cache) return;
       
-      relayRef.current = relay;
-
       // Fetch Nostr profiles (kind 0) for all bound pubkeys (once)
       const pubkeys = Object.keys(cache.pubkeyIndex);
       if (pubkeys.length > 0 && !profilesFetched) {
