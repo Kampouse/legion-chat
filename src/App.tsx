@@ -26,7 +26,6 @@ import {
 import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
 
 type Screen = "login" | "checking" | "no-sbt" | "bind" | "binding" | "chat";
-type SignerType = "extension" | "bunker" | "local";
 
 interface Message {
   id: string;
@@ -46,7 +45,6 @@ interface Profile {
   nip05?: string;
 }
 
-// ── Content parser ──
 function parseContent(content: string) {
   const segments: { type: "text" | "link"; value: string }[] = [];
   const linkRe = /(https?:\/\/[^\s]+)/g;
@@ -96,13 +94,12 @@ function connectionDot(state: ConnectionState): { color: string; label: string }
   }
 }
 
-// ── Main App ──
 function ChatApp() {
   const wallet = useNearWallet();
   const [screen, setScreen] = useState<Screen>("login");
   const [error, setError] = useState<string>("");
 
-  const [_signerType, setSignerType] = useState<SignerType | null>(null);
+  const [_signerType, setSignerType] = useState<string | null>(null);
   const [signer, setSigner] = useState<NostrSigner | null>(null);
   const [myPubkey, setMyPubkey] = useState<string>("");
   const [nsec, setNsec] = useState<string>("");
@@ -112,11 +109,11 @@ function ChatApp() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const bindingsRef = useRef<BindingCache | null>(null);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [connState, setConnState] = useState<ConnectionState>("disconnected");
 
   const relayRef = useRef<Relay | null>(null);
+  const bindingsRef = useRef<BindingCache | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -137,8 +134,6 @@ function ChatApp() {
       if (!existing) { setScreen("bind"); return; }
       setMyPubkey(existing.npub);
       setRelayUrl(existing.relay || DEFAULT_RELAY);
-
-      // Try to restore signer from saved state
       const savedSigner = localStorage.getItem(`legion:signer:${accountId}`);
       if (savedSigner) {
         try {
@@ -161,8 +156,6 @@ function ChatApp() {
           console.warn("Failed to restore signer:", e.message);
         }
       }
-
-      // Try extension
       if (hasNostrExtension()) {
         try {
           const s = createNip07Signer();
@@ -176,78 +169,64 @@ function ChatApp() {
     })();
   }, [screen, accountId]);
 
-  // Chat: connect relay with auto-reconnect, load bindings, fetch profiles, subscribe
+  // ── Chat: connect relay, load bindings, subscribe ──
   useEffect(() => {
     if (screen !== "chat" || !accountId) return;
     let unsub: (() => void) | undefined;
-    let profilesFetched = false;
-
-    const managed = connectManagedRelay(relayUrl, setConnState);
-    managedRef.current = managed;
-
-    const setupSubscription = (relay: Relay) => {
-      // Unsubscribe from old subscription if any
-      unsub?.();
-      
-      const cache = bindingsRef.current;
-      if (!cache) return;
-      
-      // Fetch Nostr profiles (kind 0) for all bound pubkeys (once)
-      const pubkeys = Object.keys(cache.pubkeyIndex);
-      if (pubkeys.length > 0 && !profilesFetched) {
-        profilesFetched = true;
-        const filter = { kinds: [0], authors: pubkeys, limit: pubkeys.length };
-        const sub = relay.subscribe([filter], {
-          onevent: (evt: any) => {
-            try {
-              const p = JSON.parse(evt.content);
-              setProfiles((prev) => ({ ...prev, [evt.pubkey]: p }));
-            } catch {}
-          },
-          oneose: () => {},
-        });
-        setTimeout(() => { try { sub.close(); } catch {} }, 5000);
-      }
-
-      // Subscribe to channel messages — show all, use binding for name if available
-      unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
-        const sender = cache.pubkeyIndex[event.pubkey] || event.pubkey.slice(0, 12) + "...";
-        const msg: Message = {
-          id: event.id, pubkey: event.pubkey, content: event.content,
-          created_at: event.created_at, sender,
-        };
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
-        });
-      });
-    };
+    let closed = false;
 
     const init = async () => {
       try {
-        // Load bindings (cached or fresh)
         const cache = await fetchAllBindingsCached();
+        if (closed) return;
         bindingsRef.current = cache;
-        // Refresh in background
-        fetchAllBindingsRefresh().then((fresh) => { bindingsRef.current = fresh; });
+        fetchAllBindingsRefresh().then((fresh) => { if (!closed) bindingsRef.current = fresh; });
 
-        // Wait for relay connection
-        await waitForConnection(managed, 15000);
-        const relay = managed.getRelay();
-        if (relay) setupSubscription(relay);
-      } catch (e: any) { setError("Failed to connect: " + (e.message || e)); }
+        const relay = await connectRelayAsync(relayUrl, setConnState);
+        if (closed) { try { relay.close(); } catch {} return; }
+        relayRef.current = relay;
+
+        // Fetch profiles
+        const pubkeys = Object.keys(cache.pubkeyIndex);
+        if (pubkeys.length > 0) {
+          const profileSub = relay.subscribe([{ kinds: [0], authors: pubkeys, limit: pubkeys.length }], {
+            onevent: (evt: any) => {
+              try {
+                const p = JSON.parse(evt.content);
+                setProfiles((prev) => ({ ...prev, [evt.pubkey]: p }));
+              } catch {}
+            },
+            oneose: () => {},
+          });
+          setTimeout(() => { try { profileSub.close(); } catch {} }, 5000);
+        }
+
+        // Subscribe to channel
+        unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
+          const sender = bindingsRef.current?.pubkeyIndex[event.pubkey] || event.pubkey.slice(0, 12) + "...";
+          const msg: Message = {
+            id: event.id, pubkey: event.pubkey, content: event.content,
+            created_at: event.created_at, sender,
+          };
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msg.id)) return prev;
+            return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
+          });
+        });
+      } catch (e: any) {
+        if (!closed) setError("Failed to connect: " + (e.message || e));
+      }
     };
 
-    // Re-subscribe on reconnect
-    managed.onReconnect((relay) => {
-      setupSubscription(relay);
-    });
-
     init();
-    return () => { unsub?.(); managed.close(); relayRef.current = null; };
+    return () => {
+      closed = true;
+      unsub?.();
+      try { relayRef.current?.close(); } catch {}
+      relayRef.current = null;
+    };
   }, [screen, accountId, relayUrl, signer, myPubkey]);
 
-  // Auto-scroll logic
   useEffect(() => {
     if (autoScroll && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -270,7 +249,7 @@ function ChatApp() {
 
   const handleSignIn = () => wallet.connect();
 
-  const doBind = async (s: NostrSigner, npub: string, mode: SignerType) => {
+  const doBind = async (s: NostrSigner, npub: string, mode: string) => {
     if (!accountId) return;
     setScreen("binding"); setError("");
     try {
@@ -314,12 +293,11 @@ function ChatApp() {
     if (!input.trim() || !signer) return;
     const relay = relayRef.current;
     if (!relay || connState !== "connected") {
-      setError("Not connected to relay. Message will send when reconnected.");
+      setError("Not connected to relay.");
       return;
     }
     const content = input.trim();
     setInput(""); setSending(true); setError("");
-    // Optimistic message
     const optimisticId = `pending-${Date.now()}`;
     const optimistic: Message = {
       id: optimisticId, pubkey: myPubkey, content,
@@ -328,8 +306,7 @@ function ChatApp() {
     setMessages((prev) => [...prev, optimistic].sort((a, b) => a.created_at - b.created_at));
     try {
       const event = await signChannelMessage(signer, content, CHANNEL_ID);
-      const result = await publishWithAck(relay, event, 3000);
-      // Replace optimistic with real event ID (always, since publishWithAck assumes ok on timeout)
+      const result = await publishWithAck(relay, event);
       setMessages((prev) =>
         prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false, failed: !result.ok } : m))
       );
@@ -379,142 +356,124 @@ function ChatApp() {
             {screen === "checking" && <CheckingScreen />}
             {screen === "no-sbt" && <NoSbtScreen accountId={accountId!} onSignOut={handleSignOut} />}
             {screen === "bind" && (
-          <BindScreen
-            hasExtension={hasNostrExtension()} nsec={nsec} bunkerUri={bunkerUri}
-            relayUrl={relayUrl} error={error}
-            onNsecChange={(v) => { setNsec(v); if (v) setMyPubkey(getPubkey(v)); }}
-            onBunkerUriChange={setBunkerUri}
-            onRelayChange={setRelayUrl} onGenerate={handleGenerate}
-            onBindExtension={handleBindExtension} onBindBunker={handleBindBunker}
-            onBindLocal={handleBindLocal} onSignOut={handleSignOut}
-          />
-        )}
-        {screen === "binding" && <BindingScreen />}
+              <BindScreen
+                hasExtension={hasNostrExtension()} nsec={nsec} bunkerUri={bunkerUri}
+                relayUrl={relayUrl} error={error}
+                onNsecChange={(v) => { setNsec(v); if (v) setMyPubkey(getPubkey(v)); }}
+                onBunkerUriChange={setBunkerUri}
+                onRelayChange={setRelayUrl} onGenerate={handleGenerate}
+                onBindExtension={handleBindExtension} onBindBunker={handleBindBunker}
+                onBindLocal={handleBindLocal} onSignOut={handleSignOut}
+              />
+            )}
+            {screen === "binding" && <BindingScreen />}
           </div>
         )}
         {screen === "chat" && (
           <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
-            {/* Connection lost banner */}
             {connState !== "connected" && (
               <div className="px-4 py-2 text-xs text-center" style={{ backgroundColor: connState === "connecting" ? "rgba(251,191,36,0.1)" : "rgba(239,68,68,0.1)", color: connState === "connecting" ? "#fbbf24" : "#ef4444" }}>
-                {connState === "connecting" ? "Reconnecting to relay..." : "Disconnected from relay. Messages will send when reconnected."}
+                {connState === "connecting" ? "Connecting to relay..." : "Disconnected from relay."}
               </div>
             )}
-            {/* Messages */}
-            <div
-              ref={scrollRef}
-              onScroll={handleScroll}
-              className="flex-1 overflow-y-auto p-4 space-y-1"
-            >
-                {messages.length === 0 && (
-                  <div className="text-center py-12">
-                    <p className="text-sm" style={{ color: "var(--muted)" }}>No messages yet. Be the first to speak.</p>
-                  </div>
-                )}
-                {messages.map((msg) => {
-                  const mine = msg.pubkey === myPubkey;
-                  const profile = profiles[msg.pubkey];
-                  const nearName = msg.sender || msg.pubkey.slice(0, 8) + "...";
-                  const displayName = mine ? "you" : nearName;
-                  const showAvatar = !mine;
-                  const showSender = !mine;
-                  const prev = messages[messages.indexOf(msg) - 1];
-                  const sameSender = prev?.pubkey === msg.pubkey && (msg.created_at - (prev?.created_at || 0)) < 120;
-
-                  return (
-                    <div key={msg.id} className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"}`}>
-                      <div className="w-8 shrink-0 flex items-center justify-center">
-                        {showAvatar && !sameSender && (
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
-                            {profile?.picture ? (
-                              <img src={profile.picture} className="w-full h-full object-cover" alt="" />
-                            ) : (
-                              initials(nearName)
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] md:max-w-[70%]`}>
-                        {showSender && !sameSender && (
-                          <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>
-                            {displayName}
-                          </span>
-                        )}
-                        <div className="flex items-end gap-1.5">
-                          <div
-                            className="px-3 py-2 text-sm break-words leading-relaxed relative"
-                            style={{
-                              backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
-                              border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
-                              borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
-                              opacity: msg.pending ? 0.6 : 1,
-                            }}
-                          >
-                            <ParsedContent content={msg.content} />
-                            {msg.failed && (
-                              <span className="text-[9px] text-red-400 ml-1">(failed)</span>
-                            )}
-                          </div>
+            <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-1">
+              {messages.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>No messages yet. Be the first to speak.</p>
+                </div>
+              )}
+              {messages.map((msg) => {
+                const mine = msg.pubkey === myPubkey;
+                const profile = profiles[msg.pubkey];
+                const nearName = msg.sender || msg.pubkey.slice(0, 8) + "...";
+                const displayName = mine ? "you" : nearName;
+                const showAvatar = !mine;
+                const showSender = !mine;
+                const prev = messages[messages.indexOf(msg) - 1];
+                const sameSender = prev?.pubkey === msg.pubkey && (msg.created_at - (prev?.created_at || 0)) < 120;
+                return (
+                  <div key={msg.id} className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"}`}>
+                    <div className="w-8 shrink-0 flex items-center justify-center">
+                      {showAvatar && !sameSender && (
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
+                          {profile?.picture ? (
+                            <img src={profile.picture} className="w-full h-full object-cover" alt="" />
+                          ) : (
+                            initials(nearName)
+                          )}
                         </div>
-                        {!sameSender && (
-                          <span className="text-[9px] mt-0.5 px-1" style={{ color: "var(--muted)" }}>
-                            {timeLabel(msg.created_at)}
-                            {msg.pending && " · sending..."}
-                          </span>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  );
-                })}
-                <div ref={messagesEndRef} />
-              </div>
-
-              {/* Scroll to bottom */}
-              {showScrollBtn && (
-                <button
-                  onClick={scrollToBottom}
-                  className="absolute bottom-24 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg z-10"
-                  style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
-                >
-                  ↓
-                </button>
-              )}
-
-              {error && (
-                <div className="px-4 py-1.5 text-xs text-red-400 text-center">{error}</div>
-              )}
-
-              {/* Composer */}
-              <div className="p-3 border-t flex items-end gap-2" style={{ borderColor: "var(--border)" }}>
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={connState === "connected" ? "Say something..." : "Waiting for connection..."}
-                  rows={1}
-                  className="flex-1 px-3 py-2.5 rounded-2xl text-sm resize-none leading-relaxed"
-                  style={{
-                    backgroundColor: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    color: "var(--text)",
-                    minHeight: "42px",
-                    maxHeight: "120px",
-                  }}
-                  onInput={(e) => {
-                    const el = e.currentTarget;
-                    el.style.height = "42px";
-                    el.style.height = Math.min(el.scrollHeight, 120) + "px";
-                  }}
-                />
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim() || sending || connState !== "connected"}
-                  className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center font-bold text-black disabled:opacity-40 transition-opacity"
-                  style={{ backgroundColor: "var(--accent)" }}
-                >
-                  {sending ? "..." : "↑"}
-                </button>
-              </div>
+                    <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] md:max-w-[70%]`}>
+                      {showSender && !sameSender && (
+                        <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
+                      )}
+                      <div className="flex items-end gap-1.5">
+                        <div
+                          className="px-3 py-2 text-sm break-words leading-relaxed relative"
+                          style={{
+                            backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
+                            border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
+                            borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+                            opacity: msg.pending ? 0.6 : 1,
+                          }}
+                        >
+                          <ParsedContent content={msg.content} />
+                          {msg.failed && <span className="text-[9px] text-red-400 ml-1">(failed)</span>}
+                        </div>
+                      </div>
+                      {!sameSender && (
+                        <span className="text-[9px] mt-0.5 px-1" style={{ color: "var(--muted)" }}>
+                          {timeLabel(msg.created_at)}
+                          {msg.pending && " · sending..."}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+            {showScrollBtn && (
+              <button
+                onClick={scrollToBottom}
+                className="absolute bottom-24 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg z-10"
+                style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
+              >
+                ↓
+              </button>
+            )}
+            {error && <div className="px-4 py-1.5 text-xs text-red-400 text-center">{error}</div>}
+            <div className="p-3 border-t flex items-end gap-2" style={{ borderColor: "var(--border)" }}>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={connState === "connected" ? "Say something..." : "Waiting for connection..."}
+                rows={1}
+                className="flex-1 px-3 py-2.5 rounded-2xl text-sm resize-none leading-relaxed"
+                style={{
+                  backgroundColor: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                  minHeight: "42px",
+                  maxHeight: "120px",
+                }}
+                onInput={(e) => {
+                  const el = e.currentTarget;
+                  el.style.height = "42px";
+                  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+                }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || sending || connState !== "connected"}
+                className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center font-bold text-black disabled:opacity-40 transition-opacity"
+                style={{ backgroundColor: "var(--accent)" }}
+              >
+                {sending ? "..." : "↑"}
+              </button>
+            </div>
           </div>
         )}
       </main>
@@ -525,8 +484,6 @@ function ChatApp() {
 export default function App() {
   return <NearWalletProvider><ChatApp /></NearWalletProvider>;
 }
-
-// ── Components ──
 
 function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
   return (
