@@ -14,11 +14,12 @@ import {
   getPubkey,
   signChallenge,
   signChannelMessage,
-  connectRelay,
+  connectManagedRelay,
   subscribeChannel,
-  publishEvent,
+  publishWithAck,
   type NostrSigner,
   type Relay,
+  type ConnectionState,
 } from "./lib/nostr";
 import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
 
@@ -32,6 +33,15 @@ interface Message {
   created_at: number;
   sender?: string;
   pending?: boolean;
+  failed?: boolean;
+}
+
+interface Profile {
+  name?: string;
+  picture?: string;
+  display_name?: string;
+  about?: string;
+  nip05?: string;
 }
 
 // ── Content parser ──
@@ -75,13 +85,22 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+function connectionDot(state: ConnectionState): { color: string; label: string } {
+  switch (state) {
+    case "connected": return { color: "#00ec97", label: "Connected" };
+    case "connecting": return { color: "#fbbf24", label: "Connecting..." };
+    case "disconnected": return { color: "#ef4444", label: "Disconnected" };
+    case "error": return { color: "#ef4444", label: "Connection error" };
+  }
+}
+
 // ── Main App ──
 function ChatApp() {
   const wallet = useNearWallet();
   const [screen, setScreen] = useState<Screen>("login");
   const [error, setError] = useState<string>("");
 
-  const [signerType, setSignerType] = useState<SignerType | null>(null);
+  const [_signerType, setSignerType] = useState<SignerType | null>(null);
   const [signer, setSigner] = useState<NostrSigner | null>(null);
   const [myPubkey, setMyPubkey] = useState<string>("");
   const [nsec, setNsec] = useState<string>("");
@@ -91,10 +110,11 @@ function ChatApp() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [bindings, setBindings] = useState<Record<string, { npub: string; relay: string }>>({});
+  const [_bindings, setBindings] = useState<Record<string, { npub: string; relay: string }>>({});
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
-  const [unread, setUnread] = useState<Record<string, number>>({});
+  const [connState, setConnState] = useState<ConnectionState>("disconnected");
 
+  const managedRef = useRef<ReturnType<typeof connectManagedRelay> | null>(null);
   const relayRef = useRef<Relay | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -102,20 +122,6 @@ function ChatApp() {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const accountId = wallet.accountId || null;
-
-  // Track unread in background
-  useEffect(() => {
-    if (screen !== "chat") return;
-    const saved = localStorage.getItem(`legion:unread:${accountId}`);
-    if (saved) {
-      try { setUnread(JSON.parse(saved)); } catch {}
-    }
-  }, [screen, accountId]);
-
-  useEffect(() => {
-    if (screen !== "chat" || !accountId) return;
-    localStorage.setItem(`legion:unread:${accountId}`, JSON.stringify(unread));
-  }, [unread, screen, accountId]);
 
   useEffect(() => {
     if (wallet.isConnected && accountId) setScreen("checking");
@@ -169,19 +175,30 @@ function ChatApp() {
     })();
   }, [screen, accountId]);
 
-  // Chat: connect relay, load bindings, fetch profiles, subscribe
+  // Chat: connect relay with auto-reconnect, load bindings, fetch profiles, subscribe
   useEffect(() => {
     if (screen !== "chat" || !accountId) return;
     let unsub: (() => void) | undefined;
-    (async () => {
+    let profilesFetched = false;
+
+    const managed = connectManagedRelay(relayUrl, setConnState);
+    managedRef.current = managed;
+
+    const setup = async () => {
       try {
         const allBindings = await fetchAllBindings();
         setBindings(allBindings);
 
+        // Wait for relay to be connected (with timeout)
+        await waitForConnection(managed, 15000);
+
+        const relay = managed.relay;
+        relayRef.current = relay;
+
         // Fetch Nostr profiles (kind 0) for all bound pubkeys
-        const relay = await connectRelay(relayUrl);
         const pubkeys = Object.values(allBindings).map((b) => b.npub);
-        if (pubkeys.length > 0) {
+        if (pubkeys.length > 0 && !profilesFetched) {
+          profilesFetched = true;
           const filter = { kinds: [0], authors: pubkeys, limit: pubkeys.length };
           const sub = relay.subscribe([filter], {
             onevent: (evt: any) => {
@@ -190,13 +207,12 @@ function ChatApp() {
                 setProfiles((prev) => ({ ...prev, [evt.pubkey]: p }));
               } catch {}
             },
-            oneose: () => { /* unsub handled below */ },
+            oneose: () => {},
           });
-          // auto-close after EOSE
           setTimeout(() => { try { sub.close(); } catch {} }, 5000);
         }
 
-        relayRef.current = relay;
+        // Subscribe to channel messages
         unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
           const boundAccount = Object.entries(allBindings).find(
             ([, b]) => b.npub === event.pubkey,
@@ -210,18 +226,24 @@ function ChatApp() {
             if (prev.some((m) => m.id === msg.id)) return prev;
             return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
           });
-          // Increment unread if not from us and not viewing chat
-          if (event.pubkey !== myPubkey) {
-            setUnread((prev) => ({
-              ...prev,
-              [boundAccount[0]]: (prev[boundAccount[0]] || 0) + 1,
-            }));
-          }
         });
       } catch (e: any) { setError("Failed to connect: " + (e.message || e)); }
-    })();
-    return () => { unsub?.(); try { relayRef.current?.close(); } catch {} };
+    };
+
+    setup();
+    return () => { unsub?.(); managed.close(); managedRef.current = null; relayRef.current = null; };
   }, [screen, accountId, relayUrl, signer, myPubkey]);
+
+  // Wait for managed relay to reach connected state
+  async function waitForConnection(m: ReturnType<typeof connectManagedRelay>, timeoutMs: number): Promise<void> {
+    const start = Date.now();
+    while (m.getConnectionState() !== "connected" && Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    if (m.getConnectionState() !== "connected") {
+      throw new Error("Relay connection timed out");
+    }
+  }
 
   // Auto-scroll logic
   useEffect(() => {
@@ -234,17 +256,14 @@ function ChatApp() {
     const el = scrollRef.current;
     if (!el) return;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    const wasAuto = autoScroll;
     setAutoScroll(atBottom);
     setShowScrollBtn(!atBottom);
-  }, [autoScroll]);
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     setAutoScroll(true);
     setShowScrollBtn(false);
-    // Clear unread
-    setUnread({});
   };
 
   const handleSignIn = () => wallet.connect();
@@ -263,7 +282,6 @@ function ChatApp() {
       }
       const proof = await signChallenge(s, `legion:${accountId}`);
       await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
-      // Save signer for auto-restore
       const signerData = mode === "bunker" ? { type: "bunker", uri: bunkerUri } : mode === "local" ? { type: "local", nsec } : { type: "extension" };
       localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify(signerData));
       setSigner(s); setMyPubkey(npub); setSignerType(mode); setScreen("chat");
@@ -292,8 +310,12 @@ function ChatApp() {
 
   const handleSend = async () => {
     if (!input.trim() || !relayRef.current || !signer) return;
+    if (connState !== "connected") {
+      setError("Not connected to relay. Message will be sent when connection is restored.");
+      return;
+    }
     const content = input.trim();
-    setInput(""); setSending(true);
+    setInput(""); setSending(true); setError("");
     // Optimistic message
     const optimisticId = `pending-${Date.now()}`;
     const optimistic: Message = {
@@ -303,11 +325,19 @@ function ChatApp() {
     setMessages((prev) => [...prev, optimistic].sort((a, b) => a.created_at - b.created_at));
     try {
       const event = await signChannelMessage(signer, content, CHANNEL_ID);
-      publishEvent(relayRef.current, event);
-      // Replace optimistic with real
-      setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false } : m))
-      );
+      const result = await publishWithAck(relayRef.current, event, 5000);
+      if (result.ok) {
+        // Replace optimistic with real
+        setMessages((prev) =>
+          prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false } : m))
+        );
+      } else {
+        // Relay rejected — mark as failed
+        setMessages((prev) =>
+          prev.map((m) => (m.id === optimisticId ? { ...m, pending: false, failed: true } : m))
+        );
+        setError("Message rejected: " + (result.message || "unknown reason"));
+      }
     } catch (e: any) {
       // Remove optimistic on failure
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
@@ -323,20 +353,21 @@ function ChatApp() {
   const handleSignOut = () => {
     wallet.disconnect(); signer?.close?.();
     setSigner(null); setNsec(""); setMyPubkey(""); setSignerType(null); setMessages([]);
-    setProfiles({}); setBindings({}); setMobileShowChat(false);
+    setProfiles({}); setBindings({});
     if (accountId) localStorage.removeItem(`legion:signer:${accountId}`);
     setScreen("login");
   };
 
+  const connInfo = connectionDot(connState);
+
   return (
     <div className="flex flex-col h-[100dvh]" style={{ backgroundColor: "var(--bg)" }}>
-      {/* Header — only visible on mobile when in chat, always on desktop */}
       {screen === "chat" && (
         <header className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[var(--accent)]" />
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: connInfo.color }} title={connInfo.label} />
             <span className="font-semibold text-sm">Legion Chat</span>
-            <span className="text-xs" style={{ color: "var(--muted)" }}>• General</span>
+            <span className="text-xs" style={{ color: "var(--muted)" }}>• {connInfo.label}</span>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{accountId}</span>
@@ -366,6 +397,12 @@ function ChatApp() {
         )}
         {screen === "chat" && (
           <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
+            {/* Connection lost banner */}
+            {connState !== "connected" && (
+              <div className="px-4 py-2 text-xs text-center" style={{ backgroundColor: connState === "connecting" ? "rgba(251,191,36,0.1)" : "rgba(239,68,68,0.1)", color: connState === "connecting" ? "#fbbf24" : "#ef4444" }}>
+                {connState === "connecting" ? "Reconnecting to relay..." : "Disconnected from relay. Messages will send when reconnected."}
+              </div>
+            )}
             {/* Messages */}
             <div
               ref={scrollRef}
@@ -408,19 +445,24 @@ function ChatApp() {
                         )}
                         <div className="flex items-end gap-1.5">
                           <div
-                            className="px-3 py-2 text-sm break-words leading-relaxed"
+                            className="px-3 py-2 text-sm break-words leading-relaxed relative"
                             style={{
-                              backgroundColor: mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
-                              border: mine ? "none" : "1px solid var(--border)",
+                              backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
+                              border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
                               borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+                              opacity: msg.pending ? 0.6 : 1,
                             }}
                           >
                             <ParsedContent content={msg.content} />
+                            {msg.failed && (
+                              <span className="text-[9px] text-red-400 ml-1">(failed)</span>
+                            )}
                           </div>
                         </div>
                         {!sameSender && (
                           <span className="text-[9px] mt-0.5 px-1" style={{ color: "var(--muted)" }}>
                             {timeLabel(msg.created_at)}
+                            {msg.pending && " · sending..."}
                           </span>
                         )}
                       </div>
@@ -451,7 +493,7 @@ function ChatApp() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Say something..."
+                  placeholder={connState === "connected" ? "Say something..." : "Waiting for connection..."}
                   rows={1}
                   className="flex-1 px-3 py-2.5 rounded-2xl text-sm resize-none leading-relaxed"
                   style={{
@@ -469,7 +511,7 @@ function ChatApp() {
                 />
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim() || sending}
+                  disabled={!input.trim() || sending || connState !== "connected"}
                   className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center font-bold text-black disabled:opacity-40 transition-opacity"
                   style={{ backgroundColor: "var(--accent)" }}
                 >
