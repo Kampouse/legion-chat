@@ -75,7 +75,7 @@ export async function signChallenge(signer: NostrSigner, challenge: string): Pro
 
 export async function signChannelMessage(signer: NostrSigner, content: string, channelId: string): Promise<any> {
   return signer.signEvent({
-    kind: 41,
+    kind: 42,
     created_at: Math.floor(Date.now() / 1000),
     tags: [["e", channelId, relayHint(DEFAULT_RELAY), "root"]],
     content,
@@ -132,7 +132,7 @@ export function subscribeChannel(
   channelId: string,
   onMessage: (msg: any) => void,
 ): () => void {
-  const filter = { kinds: [41], "#e": [channelId], limit: 500 };
+  const filter = { kinds: [42], "#e": [channelId], limit: 500 };
   const sub = relay.subscribe([filter], {
     onevent: (event: any) => {
       onMessage(event);
