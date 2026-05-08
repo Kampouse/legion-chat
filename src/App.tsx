@@ -34,22 +34,6 @@ interface Message {
   pending?: boolean;
 }
 
-interface Profile {
-  name?: string;
-  picture?: string;
-  display_name?: string;
-  about?: string;
-  nip05?: string;
-}
-
-interface ContactInfo {
-  accountId: string;
-  npub: string;
-  profile?: Profile;
-  lastMessage?: Message;
-  unread: number;
-}
-
 // ── Content parser ──
 function parseContent(content: string) {
   const segments: { type: "text" | "link"; value: string }[] = [];
@@ -116,8 +100,6 @@ function ChatApp() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const [mobileShowChat, setMobileShowChat] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(false);
 
   const accountId = wallet.accountId || null;
 
@@ -229,7 +211,7 @@ function ChatApp() {
             return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
           });
           // Increment unread if not from us and not viewing chat
-          if (event.pubkey !== myPubkey && !mobileShowChat) {
+          if (event.pubkey !== myPubkey) {
             setUnread((prev) => ({
               ...prev,
               [boundAccount[0]]: (prev[boundAccount[0]] || 0) + 1,
@@ -239,7 +221,7 @@ function ChatApp() {
       } catch (e: any) { setError("Failed to connect: " + (e.message || e)); }
     })();
     return () => { unsub?.(); try { relayRef.current?.close(); } catch {} };
-  }, [screen, accountId, relayUrl, signer, myPubkey, mobileShowChat]);
+  }, [screen, accountId, relayUrl, signer, myPubkey]);
 
   // Auto-scroll logic
   useEffect(() => {
@@ -346,32 +328,12 @@ function ChatApp() {
     setScreen("login");
   };
 
-  // Contacts sorted by last message time
-  const contacts: ContactInfo[] = useMemo(() => {
-    return Object.entries(bindings)
-      .filter(([id]) => id !== accountId)
-      .map(([id, b]) => {
-        const lastMsg = [...messages].reverse().find((m) => m.sender === id || (m.pubkey === b.npub));
-        return {
-          accountId: id, npub: b.npub,
-          profile: profiles[b.npub],
-          lastMessage: lastMsg,
-          unread: unread[id] || 0,
-        };
-      })
-      .sort((a, b) => (b.lastMessage?.created_at || 0) - (a.lastMessage?.created_at || 0));
-  }, [bindings, messages, profiles, unread, accountId]);
-
-  const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0);
-
   return (
     <div className="flex flex-col h-[100dvh]" style={{ backgroundColor: "var(--bg)" }}>
       {/* Header — only visible on mobile when in chat, always on desktop */}
       {screen === "chat" && (
-        <header className={`${mobileShowChat ? "" : "hidden md:flex"} items-center justify-between px-4 py-3 border-b`} style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
+        <header className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
           <div className="flex items-center gap-2">
-            <button onClick={() => setMobileShowChat(false)} className="md:hidden text-sm px-2 py-1 rounded" style={{ color: "var(--muted)" }}>← Back</button>
-            <button onClick={() => setShowSidebar(!showSidebar)} className="text-sm px-2 py-1 rounded hidden md:block" style={{ color: showSidebar ? "var(--accent)" : "var(--muted)" }}>👥</button>
             <div className="w-2 h-2 rounded-full bg-[var(--accent)]" />
             <span className="font-semibold text-sm">Legion Chat</span>
             <span className="text-xs" style={{ color: "var(--muted)" }}>• General</span>
@@ -403,74 +365,13 @@ function ChatApp() {
           </div>
         )}
         {screen === "chat" && (
-          <div className="flex w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
-            {/* Sidebar — mobile: full screen when not in chat. desktop: 320px panel when toggled */}
-            {!mobileShowChat ? (
-              <div
-                className="flex flex-col w-full md:w-[320px] md:border-r shrink-0"
-                style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}
-              >
-                <div className="p-3 border-b" style={{ borderColor: "var(--border)" }}>
-                  <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
-                    {Object.keys(bindings).filter((id) => id !== accountId).length} members
-                  </p>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                  {contacts.map((c) => (
-                    <ContactRow
-                      key={c.accountId}
-                      contact={c}
-                      myPubkey={myPubkey}
-                      onClick={() => {
-                        setMobileShowChat(true);
-                        scrollToBottom();
-                      }}
-                    />
-                  ))}
-                  {contacts.length === 0 && (
-                    <div className="p-4 text-center">
-                      <p className="text-xs" style={{ color: "var(--muted)" }}>No other members yet</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : null}
-
-            {/* Desktop sidebar (toggled by 👥) */}
-            {mobileShowChat && showSidebar && (
-              <div
-                className="hidden md:flex flex-col border-r shrink-0"
-                style={{ width: "320px", borderColor: "var(--border)", backgroundColor: "var(--surface)" }}
-              >
-                <div className="p-3 border-b" style={{ borderColor: "var(--border)" }}>
-                  <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
-                    {Object.keys(bindings).filter((id) => id !== accountId).length} members
-                  </p>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                  {contacts.map((c) => (
-                    <ContactRow
-                      key={c.accountId}
-                      contact={c}
-                      myPubkey={myPubkey}
-                      onClick={scrollToBottom}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Chat area — mobile: full screen when in chat. desktop: always visible. */}
+          <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
+            {/* Messages */}
             <div
-              className={`flex flex-col flex-1 min-w-0 ${mobileShowChat ? "flex" : "hidden md:flex"}`}
-              style={{ backgroundColor: "var(--bg)" }}
+              ref={scrollRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto p-4 space-y-1"
             >
-              {/* Messages */}
-              <div
-                ref={scrollRef}
-                onScroll={handleScroll}
-                className="flex-1 overflow-y-auto p-4 space-y-1"
-              >
                 {messages.length === 0 && (
                   <div className="text-center py-12">
                     <p className="text-sm" style={{ color: "var(--muted)" }}>No messages yet. Be the first to speak.</p>
@@ -575,7 +476,6 @@ function ChatApp() {
                   {sending ? "..." : "↑"}
                 </button>
               </div>
-            </div>
           </div>
         )}
       </main>
@@ -588,40 +488,6 @@ export default function App() {
 }
 
 // ── Components ──
-
-function ContactRow({ contact, myPubkey, onClick }: { contact: ContactInfo; myPubkey: string; onClick: () => void }) {
-  const { accountId: id, npub, profile, lastMessage, unread: count } = contact;
-  const name = id; // Always use NEAR account name
-  const preview = lastMessage?.content || "No messages yet";
-  const truncated = preview.length > 40 ? preview.slice(0, 40) + "..." : preview;
-  return (
-    <div onClick={onClick} className="flex items-center gap-3 px-3 py-3 cursor-pointer transition-colors" style={{ borderBottom: "1px solid var(--border)" }}>
-      <div className="relative shrink-0">
-        <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold overflow-hidden" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
-          {profile?.picture ? (
-            <img src={profile.picture} className="w-full h-full object-cover" alt="" />
-          ) : (
-            initials(name)
-          )}
-        </div>
-        {count > 0 && (
-          <div className="absolute -bottom-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold text-white" style={{ backgroundColor: "#ef4444" }}>
-            {count}
-          </div>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex justify-between items-center mb-0.5">
-          <span className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{name}</span>
-          {lastMessage && <span className="text-[10px] shrink-0 ml-2" style={{ color: "var(--muted)" }}>{timeLabel(lastMessage.created_at)}</span>}
-        </div>
-        <p className={`text-xs truncate ${count > 0 ? "font-medium" : ""}`} style={{ color: count > 0 ? "var(--text)" : "var(--muted)" }}>
-          {truncated}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
   return (
