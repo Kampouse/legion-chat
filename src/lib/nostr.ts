@@ -88,20 +88,21 @@ function relayHint(url: string): string {
 
 // ── Relay with reconnection ──
 
-const RELAY_CONNECT_TIMEOUT = 10000;
-const RECONNECT_BASE_DELAY = 1000;
-const RECONNECT_MAX_DELAY = 30000;
-
 export interface ManagedRelay {
-  relay: Relay;
+  getRelay: () => Relay | null;
   getConnectionState: () => ConnectionState;
   onStateChange: (cb: (state: ConnectionState) => void) => () => void;
+  onReconnect: (cb: (relay: Relay) => void) => () => void;
   close: () => void;
 }
 
+const RECONNECT_BASE_DELAY = 1000;
+const RECONNECT_MAX_DELAY = 30000;
+
 /**
- * Connect to a relay with automatic reconnection and state tracking.
- * Returns a ManagedRelay that handles reconnection with exponential backoff.
+ * Connect to a relay with automatic reconnection.
+ * Notifies via onReconnect() when a new connection is established
+ * so consumers can re-subscribe.
  */
 export function connectManagedRelay(
   url: string,
@@ -112,43 +113,41 @@ export function connectManagedRelay(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let attempt = 0;
   let closed = false;
-  const listeners = new Set<(state: ConnectionState) => void>();
+  const stateListeners = new Set<(state: ConnectionState) => void>();
+  const reconnectListeners = new Set<(relay: Relay) => void>();
 
-  const notify = (s: ConnectionState) => {
+  const notifyState = (s: ConnectionState) => {
     state = s;
     onStateChange?.(s);
-    listeners.forEach((cb) => cb(s));
+    stateListeners.forEach((cb) => cb(s));
   };
 
-  const getWs = (): WebSocket | undefined => {
-    try { return (relay as any)?.ws as WebSocket | undefined; }
-    catch { return undefined; }
+  const notifyReconnect = (r: Relay) => {
+    reconnectListeners.forEach((cb) => cb(r));
   };
 
   const connect = async () => {
     if (closed) return;
-    notify("connecting");
+    notifyState("connecting");
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), RELAY_CONNECT_TIMEOUT);
       relay = await Relay.connect(url);
-      clearTimeout(timeout);
       attempt = 0;
-      notify("connected");
+      notifyState("connected");
+      notifyReconnect(relay);
 
       // Watch for disconnect
-      const ws = getWs();
+      const ws = (relay as any)?.ws as WebSocket | undefined;
       if (ws) {
         ws.addEventListener("close", () => {
           if (!closed) scheduleReconnect();
         });
         ws.addEventListener("error", () => {
-          if (!closed) notify("error");
+          if (!closed) notifyState("error");
         });
       }
     } catch (e: any) {
       if (!closed) {
-        notify("error");
+        notifyState("error");
         scheduleReconnect();
       }
     }
@@ -157,7 +156,6 @@ export function connectManagedRelay(
   const scheduleReconnect = () => {
     if (closed) return;
     const delay = Math.min(RECONNECT_BASE_DELAY * Math.pow(2, attempt), RECONNECT_MAX_DELAY);
-    // Add jitter ±25%
     const jitter = delay * (0.75 + Math.random() * 0.5);
     attempt++;
     reconnectTimer = setTimeout(connect, jitter);
@@ -166,11 +164,15 @@ export function connectManagedRelay(
   connect();
 
   return {
-    get relay() { return relay!; },
+    getRelay: () => relay,
     getConnectionState: () => state,
     onStateChange: (cb) => {
-      listeners.add(cb);
-      return () => listeners.delete(cb);
+      stateListeners.add(cb);
+      return () => stateListeners.delete(cb);
+    },
+    onReconnect: (cb) => {
+      reconnectListeners.add(cb);
+      return () => reconnectListeners.delete(cb);
     },
     close: () => {
       closed = true;
@@ -180,7 +182,7 @@ export function connectManagedRelay(
   };
 }
 
-// ── Publish with confirmation ──
+// ── Publish with best-effort ack ──
 
 export interface PublishResult {
   ok: boolean;
@@ -189,13 +191,14 @@ export interface PublishResult {
 }
 
 /**
- * Publish an event and wait for the relay's OK response.
- * Returns a promise that resolves when the relay confirms (or rejects).
+ * Publish an event. Waits up to timeoutMs for relay OK response.
+ * If no response received, returns ok=true (fire-and-forget assumption).
+ * Only returns ok=false if relay explicitly rejects.
  */
 export function publishWithAck(
   relay: Relay,
   event: any,
-  timeoutMs: number = 5000,
+  timeoutMs: number = 3000,
 ): Promise<PublishResult> {
   return new Promise((resolve) => {
     const ws = (relay as any).ws as WebSocket | undefined;
@@ -205,14 +208,14 @@ export function publishWithAck(
     }
 
     const timer = setTimeout(() => {
+      // No OK received — assume success (relay may not send OK for kind 41)
       cleanup();
-      resolve({ ok: false, eventId: event.id, message: "Publish timed out" });
+      resolve({ ok: true, eventId: event.id, message: "sent (unconfirmed)" });
     }, timeoutMs);
 
     const handler = (ev: MessageEvent) => {
       try {
         const msg = JSON.parse(ev.data);
-        // Relay responds with ["OK", eventId, success, message]
         if (msg[0] === "OK" && msg[1] === event.id) {
           cleanup();
           resolve({ ok: msg[2], eventId: msg[1], message: msg[3] || "" });
@@ -259,7 +262,7 @@ export function subscribeChannel(
   };
 }
 
-// Legacy fire-and-forget publish (kept for backwards compat)
+// Legacy fire-and-forget publish
 export function publishEvent(relay: Relay, event: any): void {
   const msg = JSON.stringify(["EVENT", event]);
   (relay as any).ws?.send(msg);

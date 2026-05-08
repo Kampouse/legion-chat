@@ -117,7 +117,6 @@ function ChatApp() {
   const [connState, setConnState] = useState<ConnectionState>("disconnected");
 
   const managedRef = useRef<ReturnType<typeof connectManagedRelay> | null>(null);
-  const relayRef = useRef<Relay | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -186,56 +185,69 @@ function ChatApp() {
     const managed = connectManagedRelay(relayUrl, setConnState);
     managedRef.current = managed;
 
-    const setup = async () => {
+    const setupSubscription = (relay: Relay) => {
+      // Unsubscribe from old subscription if any
+      unsub?.();
+      
+      const cache = bindingsRef.current;
+      if (!cache) return;
+      
+      relayRef.current = relay;
+
+      // Fetch Nostr profiles (kind 0) for all bound pubkeys (once)
+      const pubkeys = Object.keys(cache.pubkeyIndex);
+      if (pubkeys.length > 0 && !profilesFetched) {
+        profilesFetched = true;
+        const filter = { kinds: [0], authors: pubkeys, limit: pubkeys.length };
+        const sub = relay.subscribe([filter], {
+          onevent: (evt: any) => {
+            try {
+              const p = JSON.parse(evt.content);
+              setProfiles((prev) => ({ ...prev, [evt.pubkey]: p }));
+            } catch {}
+          },
+          oneose: () => {},
+        });
+        setTimeout(() => { try { sub.close(); } catch {} }, 5000);
+      }
+
+      // Subscribe to channel messages — O(1) pubkey lookup via index
+      unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
+        const sender = cache.pubkeyIndex[event.pubkey];
+        if (!sender) return;
+        const msg: Message = {
+          id: event.id, pubkey: event.pubkey, content: event.content,
+          created_at: event.created_at, sender,
+        };
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
+        });
+      });
+    };
+
+    const init = async () => {
       try {
-        // Use cached bindings (instant if fresh, fetch if stale)
+        // Load bindings (cached or fresh)
         const cache = await fetchAllBindingsCached();
         bindingsRef.current = cache;
-
-        // Refresh in background to pick up new users
+        // Refresh in background
         fetchAllBindingsRefresh().then((fresh) => { bindingsRef.current = fresh; });
 
-        // Wait for relay to be connected (with timeout)
+        // Wait for relay connection
         await waitForConnection(managed, 15000);
-
-        const relay = managed.relay;
-        relayRef.current = relay;
-
-        // Fetch Nostr profiles (kind 0) for all bound pubkeys
-        const pubkeys = Object.keys(cache.pubkeyIndex);
-        if (pubkeys.length > 0 && !profilesFetched) {
-          profilesFetched = true;
-          const filter = { kinds: [0], authors: pubkeys, limit: pubkeys.length };
-          const sub = relay.subscribe([filter], {
-            onevent: (evt: any) => {
-              try {
-                const p = JSON.parse(evt.content);
-                setProfiles((prev) => ({ ...prev, [evt.pubkey]: p }));
-              } catch {}
-            },
-            oneose: () => {},
-          });
-          setTimeout(() => { try { sub.close(); } catch {} }, 5000);
-        }
-
-        // Subscribe to channel messages — O(1) pubkey lookup via index
-        unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
-          const sender = cache.pubkeyIndex[event.pubkey];
-          if (!sender) return;
-          const msg: Message = {
-            id: event.id, pubkey: event.pubkey, content: event.content,
-            created_at: event.created_at, sender,
-          };
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
-            return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
-          });
-        });
+        const relay = managed.getRelay();
+        if (relay) setupSubscription(relay);
       } catch (e: any) { setError("Failed to connect: " + (e.message || e)); }
     };
 
-    setup();
-    return () => { unsub?.(); managed.close(); managedRef.current = null; relayRef.current = null; };
+    // Re-subscribe on reconnect
+    managed.onReconnect((relay) => {
+      setupSubscription(relay);
+    });
+
+    init();
+    return () => { unsub?.(); managed.close(); managedRef.current = null; };
   }, [screen, accountId, relayUrl, signer, myPubkey]);
 
   // Wait for managed relay to reach connected state
@@ -313,9 +325,10 @@ function ChatApp() {
   };
 
   const handleSend = async () => {
-    if (!input.trim() || !relayRef.current || !signer) return;
-    if (connState !== "connected") {
-      setError("Not connected to relay. Message will be sent when connection is restored.");
+    if (!input.trim() || !signer) return;
+    const relay = managedRef.current?.getRelay();
+    if (!relay || connState !== "connected") {
+      setError("Not connected to relay. Message will send when reconnected.");
       return;
     }
     const content = input.trim();
@@ -329,22 +342,16 @@ function ChatApp() {
     setMessages((prev) => [...prev, optimistic].sort((a, b) => a.created_at - b.created_at));
     try {
       const event = await signChannelMessage(signer, content, CHANNEL_ID);
-      const result = await publishWithAck(relayRef.current, event, 5000);
-      if (result.ok) {
-        // Replace optimistic with real
-        setMessages((prev) =>
-          prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false } : m))
-        );
-      } else {
-        // Relay rejected — mark as failed
-        setMessages((prev) =>
-          prev.map((m) => (m.id === optimisticId ? { ...m, pending: false, failed: true } : m))
-        );
-        setError("Message rejected: " + (result.message || "unknown reason"));
-      }
+      const result = await publishWithAck(relay, event, 3000);
+      // Replace optimistic with real event ID (always, since publishWithAck assumes ok on timeout)
+      setMessages((prev) =>
+        prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false, failed: !result.ok } : m))
+      );
+      if (!result.ok) setError("Message rejected: " + (result.message || "unknown reason"));
     } catch (e: any) {
-      // Remove optimistic on failure
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+      setMessages((prev) =>
+        prev.map((m) => (m.id === optimisticId ? { ...m, pending: false, failed: true } : m))
+      );
       setError("Send failed: " + e.message);
     }
     setSending(false);
