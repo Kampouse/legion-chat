@@ -499,7 +499,7 @@ function ChatApp() {
                           </div>
                         )}
                       </div>
-                      <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[75%]`}>
+                      <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] md:max-w-[70%]`}>
                         {showSender && !sameSender && (
                           <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>
                             {displayName}

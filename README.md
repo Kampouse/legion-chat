@@ -1,73 +1,62 @@
-# React + TypeScript + Vite
+# Legion Chat
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+NEAR SBT-gated Nostr group chat. Requires an ASCENDANT or INITIATE SBT from NearLegion.
 
-Currently, two official plugins are available:
+## Live
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+https://legion-chat.pages.dev
 
-## React Compiler
+## Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React + TypeScript + Vite
+- Tailwind CSS
+- Nostr (NIP-28 channels, raw WebSocket)
+- NEAR Protocol (`@hot-labs/near-connect`)
+- FastNear KV for on-chain bindings
+- Deployed on Cloudflare Pages
 
-## Expanding the ESLint configuration
+## How it works
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. Connect NEAR wallet (must hold an ASCENDANT or INITIATE SBT)
+2. Link a Nostr identity (NIP-46 bunker, nos2x extension, or local nsec)
+3. Public key + proof of ownership stored on-chain via FastNear KV
+4. Chat uses NIP-28 channels (kind 40/41) — messages don't appear on public Nostr timeline
+5. Client-side filtering: only renders messages from pubkeys with valid on-chain bindings
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Architecture
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+├── App.tsx              # Main chat UI (state machine, sidebar, messages, composer)
+├── lib/
+│   ├── constants.ts     # SBT contracts, KV accounts, relay URL, channel ID
+│   ├── near.ts          # SBT check, binding transaction
+│   ├── binding.ts       # Fetch bindings from FastNear KV
+│   ├── nostr.ts         # Signers, NIP-28 channel creation/messaging, relay
+│   ├── NearWalletContext.tsx  # React context for NEAR wallet
+│   └── crypto.ts        # AES-256-GCM (unused, kept for future)
+├── index.css            # Dark theme (CSS variables)
+└── main.tsx             # Entry point + buffer polyfill
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Key details
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- **Channel ID**: SHA-256 of `"legion-general"`, hardcoded — no KV write needed
+- **Signer persistence**: Bunker URI / nsec saved to localStorage per NEAR account
+- **Relay**: `wss://relay.damus.io`
+- **Raw WebSocket**: Both publish and subscribe use direct `ws.send()` (nostr-tools `Relay` class unreliable)
+- **Duplicate npub prevention**: Checks all bindings before allowing new bind
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Dev
+
+```bash
+npm install
+npx tsc --noEmit
+npx vite build
+```
+
+## Deploy
+
+```bash
+npx tsc --noEmit && npx vite build && npx wrangler pages deploy dist --project-name legion-chat --branch main --commit-dirty=true
 ```
