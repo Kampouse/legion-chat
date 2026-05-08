@@ -3,7 +3,9 @@ import { NearWalletProvider, useNearWallet } from "./lib/NearWalletContext";
 import { checkSbt, sendBindingTx } from "./lib/near";
 import {
   fetchBinding,
-  fetchAllBindings,
+  fetchAllBindingsCached,
+  fetchAllBindingsRefresh,
+  type BindingCache,
 } from "./lib/binding";
 import {
   hasNostrExtension,
@@ -110,7 +112,7 @@ function ChatApp() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [_bindings, setBindings] = useState<Record<string, { npub: string; relay: string }>>({});
+  const bindingsRef = useRef<BindingCache | null>(null);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [connState, setConnState] = useState<ConnectionState>("disconnected");
 
@@ -186,8 +188,12 @@ function ChatApp() {
 
     const setup = async () => {
       try {
-        const allBindings = await fetchAllBindings();
-        setBindings(allBindings);
+        // Use cached bindings (instant if fresh, fetch if stale)
+        const cache = await fetchAllBindingsCached();
+        bindingsRef.current = cache;
+
+        // Refresh in background to pick up new users
+        fetchAllBindingsRefresh().then((fresh) => { bindingsRef.current = fresh; });
 
         // Wait for relay to be connected (with timeout)
         await waitForConnection(managed, 15000);
@@ -196,7 +202,7 @@ function ChatApp() {
         relayRef.current = relay;
 
         // Fetch Nostr profiles (kind 0) for all bound pubkeys
-        const pubkeys = Object.values(allBindings).map((b) => b.npub);
+        const pubkeys = Object.keys(cache.pubkeyIndex);
         if (pubkeys.length > 0 && !profilesFetched) {
           profilesFetched = true;
           const filter = { kinds: [0], authors: pubkeys, limit: pubkeys.length };
@@ -212,15 +218,13 @@ function ChatApp() {
           setTimeout(() => { try { sub.close(); } catch {} }, 5000);
         }
 
-        // Subscribe to channel messages
+        // Subscribe to channel messages — O(1) pubkey lookup via index
         unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
-          const boundAccount = Object.entries(allBindings).find(
-            ([, b]) => b.npub === event.pubkey,
-          );
-          if (!boundAccount) return;
+          const sender = cache.pubkeyIndex[event.pubkey];
+          if (!sender) return;
           const msg: Message = {
             id: event.id, pubkey: event.pubkey, content: event.content,
-            created_at: event.created_at, sender: boundAccount[0],
+            created_at: event.created_at, sender,
           };
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) return prev;
@@ -272,7 +276,7 @@ function ChatApp() {
     if (!accountId) return;
     setScreen("binding"); setError("");
     try {
-      const allBindings = await fetchAllBindings();
+      const allBindings = (await fetchAllBindingsRefresh()).bindings;
       for (const [existingId, binding] of Object.entries(allBindings)) {
         if (binding.npub === npub && existingId !== accountId) {
           setError(`This Nostr key is already bound to ${existingId}`);
@@ -353,7 +357,7 @@ function ChatApp() {
   const handleSignOut = () => {
     wallet.disconnect(); signer?.close?.();
     setSigner(null); setNsec(""); setMyPubkey(""); setSignerType(null); setMessages([]);
-    setProfiles({}); setBindings({});
+    setProfiles({});
     if (accountId) localStorage.removeItem(`legion:signer:${accountId}`);
     setScreen("login");
   };
