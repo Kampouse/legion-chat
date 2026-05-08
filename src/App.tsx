@@ -341,13 +341,11 @@ function ChatApp() {
   return (
     <div className="flex flex-col h-[100dvh]" style={{ backgroundColor: "var(--bg)" }}>
       {screen === "chat" && (
-        <header className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: connInfo.color }} title={connInfo.label} />
+        <header className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
+          <div className="flex items-center gap-2 max-w-3xl mx-auto w-full">
+            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: connInfo.color }} title={connInfo.label} />
             <span className="font-semibold text-sm">Legion Chat</span>
-
-          </div>
-          <div className="flex items-center gap-3">
+            <div className="flex-1" />
             <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{accountId}</span>
             <button onClick={() => setShowSettings(true)} className="text-lg px-2 py-1 rounded" style={{ color: "var(--muted)" }}>⚙️</button>
           </div>
@@ -355,7 +353,7 @@ function ChatApp() {
       )}
       <main className="flex-1 overflow-hidden">
         {(screen === "login" || screen === "checking" || screen === "no-sbt" || screen === "bind" || screen === "binding") && (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center h-full max-w-lg mx-auto w-full px-4">
             {screen === "login" && <LoginScreen onSignIn={handleSignIn} />}
             {screen === "checking" && <CheckingScreen />}
             {screen === "no-sbt" && <NoSbtScreen accountId={accountId!} onSignOut={handleSignOut} />}
@@ -374,7 +372,7 @@ function ChatApp() {
           </div>
         )}
         {screen === "chat" && (
-          <div className="flex flex-col w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
+          <div className="flex flex-col w-full h-full max-w-3xl mx-auto" style={{ backgroundColor: "var(--bg)" }}>
             {connState !== "connected" && (
               <div className="px-4 py-2 text-xs text-center" style={{ backgroundColor: connState === "connecting" ? "rgba(251,191,36,0.1)" : "rgba(239,68,68,0.1)", color: connState === "connecting" ? "#fbbf24" : "#ef4444" }}>
                 {connState === "connecting" ? "Connecting to relay..." : "Disconnected from relay."}
