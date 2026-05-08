@@ -382,11 +382,13 @@ function ChatApp() {
           </div>
         </header>
       )}
-      <main className="flex-1 flex items-center justify-center overflow-hidden">
-        {screen === "login" && <LoginScreen onSignIn={handleSignIn} />}
-        {screen === "checking" && <CheckingScreen />}
-        {screen === "no-sbt" && <NoSbtScreen accountId={accountId!} onSignOut={handleSignOut} />}
-        {screen === "bind" && (
+      <main className="flex-1 overflow-hidden">
+        {(screen === "login" || screen === "checking" || screen === "no-sbt" || screen === "bind" || screen === "binding") && (
+          <div className="flex items-center justify-center h-full">
+            {screen === "login" && <LoginScreen onSignIn={handleSignIn} />}
+            {screen === "checking" && <CheckingScreen />}
+            {screen === "no-sbt" && <NoSbtScreen accountId={accountId!} onSignOut={handleSignOut} />}
+            {screen === "bind" && (
           <BindScreen
             hasExtension={hasNostrExtension()} nsec={nsec} bunkerUri={bunkerUri}
             relayUrl={relayUrl} error={error}
@@ -398,6 +400,8 @@ function ChatApp() {
           />
         )}
         {screen === "binding" && <BindingScreen />}
+          </div>
+        )}
         {screen === "chat" && (
           <div className="flex w-full h-full" style={{ backgroundColor: "var(--bg)" }}>
             {/* Sidebar — mobile: full screen when not in chat. desktop: 320px panel when toggled */}
@@ -498,7 +502,7 @@ function ChatApp() {
                       <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[75%]`}>
                         {showSender && !sameSender && (
                           <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>
-                            {profile?.display_name || profile?.name || displayName}
+                            {displayName}
                           </span>
                         )}
                         <div className="flex items-end gap-1.5">
