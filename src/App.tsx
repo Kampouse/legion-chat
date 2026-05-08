@@ -209,10 +209,9 @@ function ChatApp() {
         setTimeout(() => { try { sub.close(); } catch {} }, 5000);
       }
 
-      // Subscribe to channel messages — O(1) pubkey lookup via index
+      // Subscribe to channel messages — show all, use binding for name if available
       unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
-        const sender = cache.pubkeyIndex[event.pubkey];
-        if (!sender) return;
+        const sender = cache.pubkeyIndex[event.pubkey] || event.pubkey.slice(0, 12) + "...";
         const msg: Message = {
           id: event.id, pubkey: event.pubkey, content: event.content,
           created_at: event.created_at, sender,
