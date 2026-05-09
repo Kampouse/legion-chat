@@ -7,8 +7,40 @@ import ContextMenu from "./ContextMenu";
 // ── Content parsing with image embeds ──
 
 const IMAGE_EXTS = /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?$/i;
+const IMAGE_HOSTS = [
+  /i\.imgur\.com/i,
+  /cdn\.discordapp\.com\/attachments/i,
+  /pbs\.twimg\.com\/media/i,
+  /media\.tenor\.com/i,
+  /i\.redd\.it/i,
+  /preview\.redd\.it/i,
+  /b\.catgirls\.party/i,
+  /files\.catbox\.moe/i,
+  /ipfs\.near\.social/i,
+  /5rz7vjvewwhjk4pr62p473cslcpuihanwcl7pjyshl6vhqbjy2ya\.arweave\.net/i,
+];
+// URLs that look like image pages (no extension but serve images)
+const IMAGE_PATH_HINTS = /\/(image|img|media|photo|pic|thumb|preview|attachment)\//i;
+
+function isImageUrl(url: string): boolean {
+  if (IMAGE_EXTS.test(url)) return true;
+  try {
+    const u = new URL(url);
+    for (const re of IMAGE_HOSTS) {
+      if (re.test(u.host)) return true;
+    }
+    // Check for format=jpg etc in query params
+    if (/[?&]format=(jpg|jpeg|png|gif|webp|avif)/i.test(u.search)) return true;
+  } catch {}
+  return false;
+}
 
 function parseContent(content: string) {
+  const trimmed = content.trim();
+  // If the entire message is a single URL, always try rendering as image first
+  const isOnlyUrl = /^https?:\/\/[^\s]+$/.test(trimmed);
+  if (isOnlyUrl) return [{ type: "image" as const, value: trimmed }];
+
   const segments: { type: "text" | "link" | "image"; value: string }[] = [];
   const linkRe = /(https?:\/\/[^\s]+)/g;
   let last = 0;
@@ -16,11 +48,7 @@ function parseContent(content: string) {
   while ((m = linkRe.exec(content)) !== null) {
     if (m.index > last) segments.push({ type: "text", value: content.slice(last, m.index) });
     const url = m[1];
-    if (IMAGE_EXTS.test(url)) {
-      segments.push({ type: "image", value: url });
-    } else {
-      segments.push({ type: "link", value: url });
-    }
+    segments.push({ type: isImageUrl(url) ? "image" : "link", value: url });
     last = m.index + m[0].length;
   }
   if (last < content.length) segments.push({ type: "text", value: content.slice(last) });
