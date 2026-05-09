@@ -81,7 +81,7 @@ export async function signChannelMessage(
 ): Promise<any> {
   const tags: string[][] = [["e", channelId, relayHint(DEFAULT_RELAY), "root"]];
   if (replyTo) {
-    tags.push(["e", replyTo.id, "relay.damus.io", "reply"]);
+    tags.push(["e", replyTo.id, relayHint(DEFAULT_RELAY), "reply"]);
   }
   return signer.signEvent({
     kind: 42,

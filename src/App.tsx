@@ -73,10 +73,16 @@ function ChatApp() {
 
   // Toast
   const [toastMsg, setToastMsg] = useState("");
+  const [toastKey, setToastKey] = useState(0);
   const [toastVisible, setToastVisible] = useState(false);
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
-    setToastVisible(true);
+    setToastVisible(false);
+    // Force fresh mount via new key — fixes rapid toast race condition
+    requestAnimationFrame(() => {
+      setToastKey((k) => k + 1);
+      setToastVisible(true);
+    });
   }, []);
 
   // Reply
@@ -176,8 +182,6 @@ function ChatApp() {
           let replyToSender: string | undefined;
           if (replyTag) {
             replyToId = replyTag[1];
-            // Try to find the referenced message in current state for content/sender
-            // This is best-effort; the message may not be loaded yet
           }
           const msg: Message = {
             id: event.id, pubkey: event.pubkey, content: event.content,
@@ -196,6 +200,25 @@ function ChatApp() {
             }
             return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
           });
+          // Backfill reply content if referenced message wasn't loaded yet
+          if (replyToId && !msg.replyToContent && relay) {
+            (async () => {
+              try {
+                const filter = { ids: [replyToId] };
+                const fetched: any = await new Promise((resolve, reject) => {
+                  const timeout = setTimeout(() => { sub2.close(); reject(new Error("timeout")); }, 4000);
+                  const sub2 = relay.subscribe([filter], {
+                    onevent: (ev: any) => { clearTimeout(timeout); sub2.close(); resolve(ev); },
+                    oneose: () => { clearTimeout(timeout); sub2.close(); reject(new Error("not found")); },
+                  });
+                });
+                const refSender = bindingsRef.current?.pubkeyIndex[fetched.pubkey] || fetched.pubkey.slice(0, 12) + "...";
+                setMessages((prev) =>
+                  prev.map((m) => m.id === msg.id ? { ...m, replyToContent: fetched.content, replyToSender: refSender } : m)
+                );
+              } catch {} // best-effort; reply preview stays minimal if fetch fails
+            })();
+          }
         });
       } catch (e: any) {
         if (!closed) setError("Failed to connect: " + (e.message || e));
@@ -423,7 +446,7 @@ function ChatApp() {
           showToast={showToast}
         />
       </main>
-      <Toast message={toastMsg} visible={toastVisible} onHide={() => setToastVisible(false)} />
+      <Toast key={toastKey} message={toastMsg} visible={toastVisible} onHide={() => setToastVisible(false)} />
     </div>
   );
 }
