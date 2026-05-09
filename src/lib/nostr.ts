@@ -135,7 +135,6 @@ export async function connectRelayAsync(
   onStateChange("connecting");
   try {
     const relay = await Relay.connect(url);
-    relay.verifyEvent = () => true; // skip sig verification for channel messages
     onStateChange("connected");
     relay.onclose = () => {
       onStateChange("disconnected");
@@ -202,7 +201,6 @@ export function connectRelayWithReconnect(
           try { relay.close(); } catch {}
           return;
         }
-        relay.verifyEvent = () => true;
         currentRelay = relay;
         attempt = 0; // reset backoff on successful connect
         onStateChange("connected");
