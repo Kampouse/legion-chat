@@ -404,7 +404,7 @@ function ComposeModal({
 
 // ── Post Card ──
 function PostCard({
-  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, onNavigateToPost, onShare, replies,
+  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, onNavigateToPost, onShare, onOpenThread, replies,
 }: {
   msg: Message;
   myPubkey: string;
@@ -415,6 +415,7 @@ function PostCard({
   onQuote: (msg: Message) => void;
   onNavigateToPost: (id: string) => void;
   onShare: (msg: Message) => void;
+  onOpenThread: (msg: Message) => void;
   replies: Message[];
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -431,7 +432,7 @@ function PostCard({
 
   return (
     <article data-post-id={msg.id} className="border-b" style={{ borderColor: "var(--border)" }}>
-      <div className="px-4 py-3 cursor-pointer" onClick={() => onReply(msg)}>
+      <div className="px-4 py-3 cursor-pointer" onClick={() => onOpenThread(msg)}>
         <div className="flex gap-3">
           <Avatar profile={profile} name={displayName} />
           <div className="flex-1 min-w-0">
@@ -510,6 +511,199 @@ function PostCard({
   );
 }
 
+// ── Thread Modal ──
+function ThreadModal({
+  rootPost, allPosts, myPubkey, profiles, myProfile, signer, relay, onClose, onReply, onReact, showToast,
+}: {
+  rootPost: Message;
+  allPosts: Message[];
+  myPubkey: string;
+  profiles: Record<string, Profile>;
+  myProfile: Profile;
+  signer: NostrSigner | null;
+  relay: Relay | null;
+  onClose: () => void;
+  onReply: (msg: Message) => void;
+  onReact: (msgId: string, pubkey: string, emoji: string) => void;
+  showToast: (msg: string) => void;
+}) {
+  const [replyText, setReplyText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message>(rootPost);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const replies = allPosts
+    .filter((p) => p.replyToId === rootPost.id)
+    .sort((a, b) => a.created_at - b.created_at);
+
+  const rootProfile = profiles[rootPost.pubkey];
+  const rootName = rootPost.sender || rootProfile?.display_name || rootProfile?.name || rootPost.pubkey.slice(0, 12) + "...";
+  const { text: rootText, imageUrl: rootImage } = parseImage(rootPost.content);
+  const rootHeartReactions = (rootPost.reactions || {})["❤️"] || [];
+  const rootLiked = rootHeartReactions.includes(myPubkey);
+  const quotedPost = rootPost.quoteId ? allPosts.find((p) => p.id === rootPost.quoteId) : null;
+
+  const replyProfile = profiles[replyingTo.pubkey];
+  const replyName = replyingTo.sender || replyProfile?.display_name || replyProfile?.name || replyingTo.pubkey.slice(0, 12) + "...";
+
+  const handleSend = async () => {
+    if (!replyText.trim() || !signer || !relay) return;
+    setSending(true);
+    try {
+      const event = await signChannelMessage(signer, replyText.trim(), FEED_CHANNEL_ID, { id: replyingTo.id });
+      await publishWithAck(relay, event);
+      onReply({
+        id: event.id, pubkey: myPubkey, content: replyText.trim(),
+        created_at: event.created_at, sender: myProfile.display_name || myProfile.name || "You",
+        replyToId: replyingTo.id,
+      });
+      setReplyText("");
+      showToast("Reply sent!");
+    } catch {
+      showToast("Failed to send reply");
+    }
+    setSending(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.6)" }} />
+      <div
+        className="relative flex flex-col w-full max-w-lg rounded-2xl overflow-hidden"
+        style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", maxHeight: "85vh", animation: "modalIn 0.2s ease" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--text)" }}>
+            <X size={20} />
+          </button>
+          <span className="font-semibold text-[15px]" style={{ color: "var(--text)" }}>Thread</span>
+          <div className="w-8" />
+        </div>
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {/* Root post */}
+          <div className="px-4 pt-3 pb-2">
+            <div className="flex gap-3">
+              <div className="flex flex-col items-center shrink-0">
+                <Avatar profile={rootProfile} name={rootName} size={40} />
+                {replies.length > 0 && <div className="flex-1 w-px mt-2" style={{ backgroundColor: "var(--border)" }} />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-[15px] truncate" style={{ color: "var(--text)" }}>{rootName}</span>
+                  <span className="text-[13px]" style={{ color: "var(--muted)" }}>· {timeAgo(rootPost.created_at)}</span>
+                </div>
+                {rootText && (
+                  <p className="text-[15px] mt-1 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
+                    {renderContent(rootText, profiles, allPosts)}
+                  </p>
+                )}
+                {rootImage && (
+                  <div className="mt-3 rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                    <img src={rootImage} alt="" className="w-full max-h-[400px] object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  </div>
+                )}
+                {quotedPost && <QuotedPost post={quotedPost} profiles={profiles} />}
+                {/* Root post actions */}
+                <div className="flex items-center justify-between mt-3 pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+                  <div className="flex items-center gap-5">
+                    <button onClick={() => setReplyingTo(rootPost)} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                      <MessageCircle size={15} />
+                      {replies.length > 0 && <span>{replies.length}</span>}
+                    </button>
+                    <button onClick={() => onReact(rootPost.id, rootPost.pubkey, "❤️")} className="flex items-center gap-1.5 text-[13px] active:scale-110 transition-transform" style={{ color: rootLiked ? "#ef4444" : "var(--muted)" }}>
+                      <Heart size={15} fill={rootLiked ? "currentColor" : "none"} />
+                      {rootHeartReactions.length > 0 && <span>{rootHeartReactions.length}</span>}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Replies */}
+          {replies.length === 0 && (
+            <div className="px-4 py-6 text-center">
+              <span className="text-sm" style={{ color: "var(--muted)" }}>No replies yet</span>
+            </div>
+          )}
+          {replies.map((reply) => {
+            const rp = profiles[reply.pubkey];
+            const rn = reply.sender || rp?.display_name || rp?.name || reply.pubkey.slice(0, 12) + "...";
+            const heartReactions = (reply.reactions || {})["❤️"] || [];
+            const liked = heartReactions.includes(myPubkey);
+            const { text: replyText } = parseImage(reply.content);
+            return (
+              <div key={reply.id} className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
+                <div className="flex gap-3">
+                  <Avatar profile={rp} name={rn} size={32} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
+                    </div>
+                    {replyText && (
+                      <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
+                        {renderContent(replyText, profiles, allPosts)}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-5 mt-2">
+                      <button onClick={() => setReplyingTo(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                        <MessageCircle size={14} />
+                      </button>
+                      <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
+                        <Heart size={14} fill={liked ? "currentColor" : "none"} />
+                        {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Reply input */}
+        <div className="shrink-0 border-t px-4 py-3" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+          {replyingTo.id !== rootPost.id && (
+            <div className="flex items-center gap-1 mb-2 text-xs" style={{ color: "var(--muted)" }}>
+              <span>Replying to</span>
+              <span style={{ color: "var(--accent)" }}>@{replyName}</span>
+              <button onClick={() => setReplyingTo(rootPost)} className="ml-1" style={{ color: "var(--muted)" }}>✕</button>
+            </div>
+          )}
+          <div className="flex gap-3 items-end">
+            <Avatar profile={myProfile} name={myProfile.display_name || myProfile.name || "Me"} size={32} />
+            <div className="flex-1 flex items-end gap-2">
+              <textarea
+                ref={taRef}
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder={`Reply to @${replyName}...`}
+                className="flex-1 bg-transparent text-sm resize-none outline-none"
+                style={{ color: "var(--text)", minHeight: "36px", maxHeight: "80px" }}
+                rows={1}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!replyText.trim() || sending}
+                className="px-3 py-1.5 rounded-full text-xs font-bold text-black disabled:opacity-40 shrink-0"
+                style={{ backgroundColor: "var(--accent)" }}
+              >
+                {sending ? <Loader2 size={12} className="animate-spin" /> : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Feed View ──
 interface FeedViewProps {
   signer: NostrSigner | null;
@@ -529,6 +723,7 @@ export default function FeedView({
   const [loading, setLoading] = useState(true);
   // null = closed, "new" = new post, Message = reply, { quote: Message } = quote
   const [composeTarget, setComposeTarget] = useState<{ type: "new" | "reply" | "quote"; post: Message | null } | null>(null);
+  const [threadPost, setThreadPost] = useState<Message | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
   const feedScrollRef = useRef<HTMLDivElement>(null);
 
@@ -682,6 +877,7 @@ export default function FeedView({
             onQuote={(m) => setComposeTarget({ type: "quote", post: m })}
             onNavigateToPost={navigateToPost}
             onShare={handleShare}
+            onOpenThread={(m) => setThreadPost(m)}
             replies={repliesFor(msg.id)}
           />
         ))}
@@ -714,6 +910,23 @@ export default function FeedView({
           onClose={() => setComposeTarget(null)}
           onPost={handlePost}
           onReply={handlePost}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Thread modal */}
+      {threadPost && (
+        <ThreadModal
+          rootPost={threadPost}
+          allPosts={posts}
+          myPubkey={myPubkey}
+          profiles={profiles}
+          myProfile={myProfile}
+          signer={signer}
+          relay={relay}
+          onClose={() => setThreadPost(null)}
+          onReply={handlePost}
+          onReact={handleReact}
           showToast={showToast}
         />
       )}
