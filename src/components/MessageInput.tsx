@@ -95,7 +95,7 @@ export default function MessageInput({
           placeholder={connState === "connected" ? "Say something..." : "Waiting for connection..."}
           rows={1}
           aria-label="Message input"
-          className="flex-1 px-3 py-2.5 rounded-2xl text-sm resize-none leading-relaxed"
+          className="flex-1 px-3 py-2.5 rounded-2xl text-sm resize-none leading-relaxed overflow-y-hidden"
           style={{
             backgroundColor: "var(--surface)",
             border: "1px solid var(--border)",
