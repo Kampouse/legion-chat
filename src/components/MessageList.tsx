@@ -107,7 +107,7 @@ export default function MessageList({
 
   return (
     <>
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-1 relative z-10">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-1 relative z-10">
         {messages.length === 0 && (
           <div className="text-center py-12">
             {loading ? (
