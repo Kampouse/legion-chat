@@ -22,6 +22,8 @@ import {
   connectRelayWithReconnect,
   subscribeChannel,
   publishWithAck,
+  publishTyping,
+  subscribeTyping,
   type NostrSigner,
   type Relay,
   type ConnectionState,
@@ -82,6 +84,10 @@ function ChatApp() {
   // Search
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+
+  // Typing indicator
+  const [typingPubkeys, setTypingPubkeys] = useState<string[]>([]);
+  const lastTypingPublish = useRef(0);
 
   // Toast
   const [toastMsg, setToastMsg] = useState("");
@@ -248,6 +254,21 @@ function ChatApp() {
                 })();
               }
             }, () => { setMessagesLoading(false); });
+
+            // Subscribe to typing indicators
+            if (myPubkey) {
+              const unsubTyping = subscribeTyping(relay, CHANNEL_ID, myPubkey, (pubkeys) => {
+                // Resolve pubkeys to display names
+                const names = pubkeys.map((pk) => {
+                  const profile = profiles[pk]; // may be stale but good enough
+                  return profile?.display_name || profile?.name || pk.slice(0, 8) + "...";
+                });
+                setTypingPubkeys(names);
+              });
+              // Chain cleanup
+              const origUnsub = unsub;
+              unsub = () => { origUnsub(); unsubTyping(); };
+            }
           },
         );
 
@@ -383,6 +404,16 @@ function ChatApp() {
       setError("Send failed: " + e.message);
     }
     setSending(false);
+  };
+
+  // Publish typing indicator (throttled to once per 3s)
+  const handleInputChange = (value: string) => {
+    setInput(value);
+    if (!value.trim() || !signer || !relayRef.current) return;
+    const now = Date.now();
+    if (now - lastTypingPublish.current < 3000) return;
+    lastTypingPublish.current = now;
+    publishTyping(signer, relayRef.current, CHANNEL_ID);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -558,11 +589,12 @@ function ChatApp() {
               onDelete={handleDeleteMessage}
               loading={messagesLoading}
               searchQuery={searchQuery}
+              typingUsers={typingPubkeys}
             />
             {error && <div className="px-4 py-1.5 text-xs text-red-400 text-center">{error}</div>}
             <MessageInput
               input={input}
-              setInput={setInput}
+              setInput={handleInputChange}
               sending={sending}
               connState={connState}
               handleSend={handleSend}

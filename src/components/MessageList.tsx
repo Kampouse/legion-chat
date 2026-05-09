@@ -1,20 +1,51 @@
-import { useMemo, Fragment, useState, useRef, useCallback, type RefObject } from "react";
+import { useMemo, Fragment, useState, useRef, useCallback, useEffect, type RefObject } from "react";
 import type { Message, Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
 import { Reply, Trash2, X, ChevronDown } from "lucide-react";
 
+// ── Content parsing with image embeds ──
+
+const IMAGE_EXTS = /\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?$/i;
+
 function parseContent(content: string) {
-  const segments: { type: "text" | "link"; value: string }[] = [];
+  const segments: { type: "text" | "link" | "image"; value: string }[] = [];
   const linkRe = /(https?:\/\/[^\s]+)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = linkRe.exec(content)) !== null) {
     if (m.index > last) segments.push({ type: "text", value: content.slice(last, m.index) });
-    segments.push({ type: "link", value: m[1] });
+    const url = m[1];
+    if (IMAGE_EXTS.test(url)) {
+      segments.push({ type: "image", value: url });
+    } else {
+      segments.push({ type: "link", value: url });
+    }
     last = m.index + m[0].length;
   }
   if (last < content.length) segments.push({ type: "text", value: content.slice(last) });
   return segments;
+}
+
+function ImagePreview({ url }: { url: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [error, setError] = useState(false);
+  if (error) return <a href={url} target="_blank" rel="noopener noreferrer" className="underline break-all" style={{ color: "var(--accent)" }}>{url}</a>;
+  return (
+    <div className="mt-1 max-w-[280px]">
+      <img
+        src={url}
+        alt=""
+        onClick={() => setExpanded(!expanded)}
+        onError={() => setError(true)}
+        className="rounded-lg cursor-pointer object-cover transition-all duration-200"
+        style={{
+          maxHeight: expanded ? "600px" : "160px",
+          width: "100%",
+          border: "1px solid var(--border)",
+        }}
+      />
+    </div>
+  );
 }
 
 function ParsedContent({ content }: { content: string }) {
@@ -22,7 +53,9 @@ function ParsedContent({ content }: { content: string }) {
   return (
     <>
       {segments.map((s, i) =>
-        s.type === "link" ? (
+        s.type === "image" ? (
+          <ImagePreview key={i} url={s.value} />
+        ) : s.type === "link" ? (
           <a key={i} href={s.value} target="_blank" rel="noopener noreferrer" className="underline break-all" style={{ color: "var(--accent)" }}>{s.value}</a>
         ) : (
           <span key={i}>{s.value}</span>
@@ -31,6 +64,8 @@ function ParsedContent({ content }: { content: string }) {
     </>
   );
 }
+
+// ── Helpers ──
 
 function timeOnly(ts: number): string {
   const d = new Date(ts * 1000);
@@ -57,8 +92,10 @@ function initials(name: string): string {
 }
 
 // ── Swipe constants ──
-const SWIPE_THRESHOLD = 60;   // px to trigger action
-const SWIPE_MAX = 100;        // max drag distance (clamped)
+const SWIPE_THRESHOLD = 60;
+const SWIPE_MAX = 100;
+
+// ── Props ──
 
 interface MessageListProps {
   messages: Message[];
@@ -75,6 +112,7 @@ interface MessageListProps {
   onDelete: (msgId: string) => void;
   loading?: boolean;
   searchQuery?: string;
+  typingUsers?: string[];
 }
 
 export default function MessageList({
@@ -92,23 +130,36 @@ export default function MessageList({
   onDelete,
   loading = false,
   searchQuery = "",
+  typingUsers = [],
 }: MessageListProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // ── Swipe state (per-row via refs) ──
+  // ── Message animation: track which IDs are "new" ──
+  const prevIdSet = useRef<Set<string>>(new Set());
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentIds = new Set(messages.map((m) => m.id));
+    const fresh = new Set<string>();
+    for (const id of currentIds) {
+      if (!prevIdSet.current.has(id)) fresh.add(id);
+    }
+    prevIdSet.current = currentIds;
+    if (fresh.size > 0) setNewIds(fresh);
+    // Clear animation class after it plays
+    const t = setTimeout(() => setNewIds(new Set()), 400);
+    return () => clearTimeout(t);
+  }, [messages]);
+
+  // ── Swipe state ──
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const touchStartTime = useRef(0);
   const draggingId = useRef<string | null>(null);
   const [swipeOffset, setSwipeOffset] = useState<Record<string, number>>({});
 
-  const clearSwipe = useCallback(() => {
-    draggingId.current = null;
-    setSwipeOffset({});
-  }, []);
-
-  // Search: parse from:user + text filters
+  // ── Search ──
   const q = searchQuery.trim();
   const fromMatch = q.match(/\bfrom:(\S+)/i);
   const fromFilter = fromMatch ? fromMatch[1].toLowerCase() : null;
@@ -175,8 +226,8 @@ export default function MessageList({
           const isHovered = hoveredId === msg.id;
           const offset = swipeOffset[msg.id] || 0;
           const absOffset = Math.abs(offset);
-          // Show hint color when past 30% of threshold
           const hinting = absOffset > SWIPE_THRESHOLD * 0.3;
+          const isNew = newIds.has(msg.id) && !msg.pending;
 
           return (
             <Fragment key={msg.id}>
@@ -190,7 +241,7 @@ export default function MessageList({
                 </div>
               )}
               <div
-                className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} group relative`}
+                className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} group relative ${isNew ? "msg-slide-in" : ""}`}
                 onMouseEnter={() => setHoveredId(msg.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 onTouchStart={(e) => {
@@ -207,13 +258,11 @@ export default function MessageList({
                   const t = e.touches[0];
                   const dx = t.clientX - touchStartX.current;
                   const dy = t.clientY - touchStartY.current;
-                  // If scrolling vertically, cancel swipe
                   if (Math.abs(dy) > Math.abs(dx) + 5) {
                     draggingId.current = null;
                     setSwipeOffset((prev) => ({ ...prev, [msg.id]: 0 }));
                     return;
                   }
-                  // Clamp: only allow swipe-right (reply) and swipe-left for own messages (delete)
                   let clamped = dx;
                   if (dx > 0) clamped = Math.min(dx, SWIPE_MAX);
                   else if (dx < 0 && mine) clamped = Math.max(dx, -SWIPE_MAX);
@@ -223,8 +272,6 @@ export default function MessageList({
                 onTouchEnd={() => {
                   if (draggingId.current !== msg.id) return;
                   const finalOffset = swipeOffset[msg.id] || 0;
-                  const elapsed = Date.now() - touchStartTime.current;
-
                   if (finalOffset > SWIPE_THRESHOLD) {
                     onReply(msg);
                   } else if (finalOffset < -SWIPE_THRESHOLD && mine) {
@@ -252,7 +299,6 @@ export default function MessageList({
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
                   <div className="flex items-end gap-1.5">
-                    {/* Desktop hover actions */}
                     {isHovered && !msg.pending && (
                       <button
                         onClick={() => onReply(msg)}
@@ -271,8 +317,7 @@ export default function MessageList({
                         borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                         opacity: msg.pending ? 0.6 : 1,
                         transform: `translateX(${offset}px)`,
-                        transition: draggingId.current === msg.id ? "none" : "transform 0.2s ease",
-                        // Tint background when swiping
+                        transition: draggingId.current === msg.id ? "none" : "transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
                         boxShadow: hinting && offset > 0
                           ? `inset ${SWIPE_MAX}px 0 40px -20px rgba(0,236,151,0.15)`
                           : hinting && offset < 0
@@ -280,7 +325,6 @@ export default function MessageList({
                           : "none",
                       }}
                     >
-                      {/* Swipe hint icons — visible under the bubble as it slides */}
                       {offset > 15 && (
                         <div className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1"
                           style={{ right: "100%", marginRight: 8, color: "var(--accent)", opacity: Math.min(absOffset / SWIPE_THRESHOLD, 1) }}>
@@ -295,7 +339,6 @@ export default function MessageList({
                           <Trash2 size={18} />
                         </div>
                       )}
-                      {/* Reply preview */}
                       {msg.replyToId && (
                         <div
                           className="mb-1.5 px-2 py-1 rounded text-xs border-l-2"
@@ -394,6 +437,21 @@ export default function MessageList({
             </Fragment>
           );
         })}
+
+        {/* Typing indicator */}
+        {typingUsers.length > 0 && (
+          <div className="flex items-center gap-2 px-1 py-1 mt-1">
+            <div className="flex gap-1">
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "var(--muted)", animationDelay: "0ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "var(--muted)", animationDelay: "150ms" }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "var(--muted)", animationDelay: "300ms" }} />
+            </div>
+            <span className="text-[11px]" style={{ color: "var(--muted)" }}>
+              {typingUsers.join(", ")} {typingUsers.length === 1 ? "is" : "are"} typing...
+            </span>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
       {showScrollBtn && (
