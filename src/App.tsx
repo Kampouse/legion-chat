@@ -497,7 +497,7 @@ function ChatApp() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-medium mb-1.5 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Nostr Public Key</label>
-                        <div className="px-3 py-2 rounded-lg text-xs font-mono break-all leading-relaxed overflow-hidden" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{myPubkey}</div>
+                        <div className="px-3 py-2 rounded-lg text-xs font-mono truncate cursor-pointer" title={myPubkey} onClick={() => navigator.clipboard.writeText(myPubkey)} style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{myPubkey}</div>
                       </div>
                     </div>
 
@@ -514,7 +514,7 @@ function ChatApp() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-medium mb-1.5 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Channel</label>
-                        <div className="px-3 py-2 rounded-lg text-xs font-mono break-all leading-relaxed overflow-hidden" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{CHANNEL_ID}</div>
+                        <div className="px-3 py-2 rounded-lg text-xs font-mono truncate cursor-pointer" title={CHANNEL_ID} onClick={() => navigator.clipboard.writeText(CHANNEL_ID)} style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{CHANNEL_ID}</div>
                       </div>
                     </div>
                   </div>
