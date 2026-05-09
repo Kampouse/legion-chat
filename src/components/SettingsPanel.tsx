@@ -51,8 +51,8 @@ export default function SettingsPanel({
   if (!showSettings) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
-      <div className="m-auto w-full max-w-2xl mx-4 rounded-2xl overflow-hidden flex flex-col max-h-[85vh]" style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.7)" }}>
+      <div className="w-full max-w-2xl mx-4 rounded-2xl overflow-hidden flex flex-col max-h-[85vh]" style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}>
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
           <span className="font-semibold">Settings</span>
           <button onClick={() => { setShowSettings(false); setEditProfile(null); }} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: "var(--muted)", backgroundColor: "var(--surface)" }}><X size={16} /></button>

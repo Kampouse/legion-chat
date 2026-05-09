@@ -695,8 +695,8 @@ export default function FeedView({
       {composeTarget === null && (
         <button
           onClick={() => setComposeTarget({ type: "new", post: null })}
-          className="absolute bottom-5 right-5 w-14 h-14 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-transform"
-          style={{ backgroundColor: "var(--accent)", color: "#000", boxShadow: "0 4px 20px rgba(0,236,151,0.3)" }}
+          className="absolute right-5 w-14 h-14 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+          style={{ backgroundColor: "var(--accent)", color: "#000", boxShadow: "0 4px 20px rgba(0,236,151,0.3)", bottom: "calc(20px + env(safe-area-inset-bottom, 0px))" }}
         >
           <Plus size={28} />
         </button>
