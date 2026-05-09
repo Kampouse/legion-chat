@@ -427,7 +427,7 @@ function PostCard({
 
   return (
     <article data-post-id={msg.id} className="border-b" style={{ borderColor: "var(--border)" }}>
-      <div className="px-4 py-3">
+      <div className="px-4 py-3 cursor-pointer" onClick={() => onReply(msg)}>
         <div className="flex gap-3">
           <Avatar profile={profile} name={displayName} />
           <div className="flex-1 min-w-0">
@@ -438,7 +438,7 @@ function PostCard({
 
             {text && (
               <p className="text-[15px] mt-1 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
-                {expanded || text.length <= 400 ? renderContent(text, profiles, allPosts) : <>{text.slice(0, 400) + "..."}<button onClick={() => setExpanded(true)} className="ml-1 text-[15px]" style={{ color: "var(--accent)" }}>Show more</button></>}
+                {expanded || text.length <= 400 ? renderContent(text, profiles, allPosts) : <>{text.slice(0, 400) + "..."}<button onClick={(e) => { e.stopPropagation(); setExpanded(true); }} className="ml-1 text-[15px]" style={{ color: "var(--accent)" }}>Show more</button></>}
               </p>
             )}
 
@@ -449,10 +449,10 @@ function PostCard({
             )}
 
             {/* Quoted post */}
-            {quotedPost && <QuotedPost post={quotedPost} profiles={profiles} onClick={() => onNavigateToPost(quotedPost.id)} />}
+            {quotedPost && <QuotedPost post={quotedPost} profiles={profiles} onClick={(e?: any) => { if (e) e.stopPropagation(); onNavigateToPost(quotedPost.id); }} />}
 
             {/* Action bar */}
-            <div className="flex items-center gap-6 mt-3">
+            <div className="flex items-center gap-6 mt-3" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--muted)" }}>
                 <button onClick={() => onReply(msg)} className="active:opacity-60">
                   <MessageCircle size={16} />
