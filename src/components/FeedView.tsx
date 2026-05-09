@@ -443,10 +443,20 @@ function PostCard({
 
             {/* Action bar */}
             <div className="flex items-center gap-6 mt-3">
-              <button onClick={() => onReply(msg)} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
-                <MessageCircle size={16} />
-                {replies.length > 0 && <span>{replies.length}</span>}
-              </button>
+              <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--muted)" }}>
+                <button onClick={() => onReply(msg)} className="active:opacity-60">
+                  <MessageCircle size={16} />
+                </button>
+                {replies.length > 0 && (
+                  <button
+                    onClick={() => setShowThread(!showThread)}
+                    className="active:opacity-60"
+                    style={{ color: showThread ? "var(--accent)" : "var(--muted)" }}
+                  >
+                    {replies.length}
+                  </button>
+                )}
+              </div>
               <button onClick={() => onReact(msg.id, msg.pubkey, "❤️")} className="flex items-center gap-1.5 text-[13px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
                 <Heart size={16} fill={liked ? "currentColor" : "none"} />
                 {totalLikes > 0 && <span>{totalLikes}</span>}
@@ -463,11 +473,6 @@ function PostCard({
       </div>
 
       {/* Thread */}
-      {replies.length > 0 && !showThread && (
-        <button onClick={() => setShowThread(true)} className="w-full px-4 pb-2 text-left text-[13px] pl-[68px]" style={{ color: "var(--accent)" }}>
-          {replies.length} {replies.length === 1 ? "reply" : "replies"}
-        </button>
-      )}
       {showThread && replies.map((reply) => {
         const rp = profiles[reply.pubkey];
         const rn = reply.sender || rp?.display_name || rp?.name || reply.pubkey.slice(0, 12) + "...";
