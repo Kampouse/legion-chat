@@ -28,10 +28,11 @@ import {
   type ConnectionState,
   type ReconnectHandle,
 } from "./lib/nostr";
-import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
+import { DEFAULT_RELAY, CHANNEL_ID, FEED_CHANNEL_ID } from "./lib/constants";
 import type { Message, Profile } from "./lib/types";
 import MessageList from "./components/MessageList";
 import MessageInput from "./components/MessageInput";
+import FeedView from "./components/FeedView";
 import SettingsPanel from "./components/SettingsPanel";
 import Toast from "./components/Toast";
 import { LoginScreen, CheckingScreen, NoSbtScreen, BindScreen, BindingScreen } from "./components/LoginScreens";
@@ -83,6 +84,7 @@ function ChatApp() {
   // Search
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [activeTab, setActiveTab] = useState<"feed" | "chat">("chat");
 
   // Toast
   const [toastMsg, setToastMsg] = useState("");
@@ -537,7 +539,26 @@ function ChatApp() {
         )}
         {screen === "chat" && (
           <div className="flex flex-col w-full h-full max-w-3xl mx-auto" style={{ backgroundColor: "var(--bg)" }}>
-            {showSearch && (
+            {/* Tab bar */}
+            <div className="flex border-b" style={{ borderColor: "var(--border)" }}>
+              <button
+                onClick={() => setActiveTab("feed")}
+                className="flex-1 py-3 text-sm font-semibold text-center transition-colors relative"
+                style={{ color: activeTab === "feed" ? "var(--accent)" : "var(--muted)" }}
+              >
+                Feed
+                {activeTab === "feed" && <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 rounded-full" style={{ backgroundColor: "var(--accent)" }} />}
+              </button>
+              <button
+                onClick={() => setActiveTab("chat")}
+                className="flex-1 py-3 text-sm font-semibold text-center transition-colors relative"
+                style={{ color: activeTab === "chat" ? "var(--accent)" : "var(--muted)" }}
+              >
+                Chat
+                {activeTab === "chat" && <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 rounded-full" style={{ backgroundColor: "var(--accent)" }} />}
+              </button>
+            </div>
+            {showSearch && activeTab === "chat" && (
               <div className="px-4 py-2 border-b relative" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
                 <div className="flex items-center gap-2">
                   <input
@@ -616,6 +637,18 @@ function ChatApp() {
                 })()}
               </div>
             )}
+            {activeTab === "feed" ? (
+              <FeedView
+                signer={signer}
+                myPubkey={myPubkey}
+                profiles={profiles}
+                bindingsRef={bindingsRef}
+                relay={relayRef.current}
+                connState={connState}
+                showToast={showToast}
+              />
+            ) : (
+              <>
             <MessageList
               messages={messages}
               myPubkey={myPubkey}
@@ -647,6 +680,8 @@ function ChatApp() {
               replyingTo={replyTo ? replyTo.sender : ""}
               replyingToContent={replyTo ? replyTo.content : undefined}
             />
+              </>
+            )}
           </div>
         )}
         <SettingsPanel
