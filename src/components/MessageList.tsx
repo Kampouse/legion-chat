@@ -132,24 +132,20 @@ function ParsedContent({ content }: { content: string }) {
 
 // ── Reaction display ──
 
-function ReactionBar({ reactions, myPubkey, mine }: { reactions?: Record<string, string[]>; myPubkey: string; mine: boolean }) {
+function ReactionBar({ reactions, myPubkey }: { reactions?: Record<string, string[]>; myPubkey: string; mine: boolean }) {
   if (!reactions) return null;
   const entries = Object.entries(reactions).filter(([, pks]) => pks.length > 0);
   if (entries.length === 0) return null;
   return (
-    <div
-      className="flex flex-wrap gap-1 absolute -bottom-3 z-10"
-      style={{ [mine ? "right" : "left"]: "4px" }}
-    >
+    <div className="flex flex-wrap gap-1 mt-1">
       {entries.map(([emoji, pks]) => (
         <span
           key={emoji}
           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px]"
           style={{
-            backgroundColor: pks.includes(myPubkey) ? "rgba(0,236,151,0.15)" : "var(--bg)",
-            border: `1px solid ${pks.includes(myPubkey) ? "var(--accent)" : "var(--border)"}`,
+            backgroundColor: pks.includes(myPubkey) ? "rgba(0,236,151,0.15)" : "rgba(255,255,255,0.08)",
+            border: `1px solid ${pks.includes(myPubkey) ? "var(--accent)" : "rgba(255,255,255,0.12)"}`,
             color: "var(--text)",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
           }}
         >
           {emoji} {pks.length > 1 && <span style={{ color: "var(--muted)" }}>{pks.length}</span>}
@@ -385,7 +381,7 @@ export default function MessageList({
                     )}
                   </div>
                 )}
-                <div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${mine ? "max-w-[90%] md:max-w-[80%]" : "max-w-[85%] md:max-w-[70%]"} relative${msg.reactions && Object.values(msg.reactions).some(p => p.length > 0) ? " pb-3" : ""}`}>
+                <div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${mine ? "max-w-[90%] md:max-w-[80%]" : "max-w-[85%] md:max-w-[70%]"}`}>
                   {!mine && !sameSender && (
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
@@ -396,7 +392,6 @@ export default function MessageList({
                       border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
                       borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                       opacity: msg.pending ? 0.6 : 1,
-                      overflow: "visible",
                     }}
                   >
                     {msg.replyToId && (
@@ -434,8 +429,8 @@ export default function MessageList({
                         </span>
                       </div>
                     )}
-                    {/* Reactions — positioned like Telegram, overlapping bottom of bubble */}
-                    <ReactionBar reactions={msg.reactions} myPubkey={myPubkey} mine={mine} />
+                    {/* Reactions — inside bubble, bottom-left like Telegram */}
+                    <ReactionBar reactions={msg.reactions} myPubkey={myPubkey} />
                   </div>
                   {!sameSender && (
                     <span className="text-[9px] mt-0.5 px-1" style={{ color: "var(--muted)" }}>
