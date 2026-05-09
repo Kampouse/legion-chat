@@ -467,6 +467,10 @@ function ChatApp() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") { setShowSearch(false); setSearchQuery(""); }
+                      if (e.key === "Backspace" && !searchQuery) { setShowSearch(false); }
+                    }}
                     placeholder="Search... type @ to filter by user"
                     autoFocus
                     className="flex-1 px-3 py-2 rounded-lg text-sm"
