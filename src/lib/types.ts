@@ -9,6 +9,7 @@ export interface Message {
   replyToId?: string;
   replyToContent?: string;
   replyToSender?: string;
+  reactions?: Record<string, string[]>; // emoji -> [pubkey, ...]
 }
 
 export interface Profile {

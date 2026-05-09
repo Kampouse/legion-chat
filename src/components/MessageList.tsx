@@ -2,6 +2,7 @@ import { useMemo, Fragment, useState, useRef, useCallback, useEffect, type RefOb
 import type { Message, Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
 import { Reply, Trash2, X, ChevronDown } from "lucide-react";
+import ContextMenu from "./ContextMenu";
 
 // ── Content parsing with image embeds ──
 
@@ -65,6 +66,31 @@ function ParsedContent({ content }: { content: string }) {
   );
 }
 
+// ── Reaction display ──
+
+function ReactionBar({ reactions, myPubkey }: { reactions?: Record<string, string[]>; myPubkey: string }) {
+  if (!reactions) return null;
+  const entries = Object.entries(reactions).filter(([, pks]) => pks.length > 0);
+  if (entries.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {entries.map(([emoji, pks]) => (
+        <span
+          key={emoji}
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px]"
+          style={{
+            backgroundColor: pks.includes(myPubkey) ? "rgba(0,236,151,0.15)" : "var(--surface)",
+            border: `1px solid ${pks.includes(myPubkey) ? "var(--accent)" : "var(--border)"}`,
+            color: "var(--text)",
+          }}
+        >
+          {emoji} {pks.length > 1 && <span style={{ color: "var(--muted)" }}>{pks.length}</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── Helpers ──
 
 function timeOnly(ts: number): string {
@@ -91,9 +117,9 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-// ── Swipe constants ──
-const SWIPE_THRESHOLD = 60;
-const SWIPE_MAX = 100;
+// ── Long-press detection ──
+const LONG_PRESS_MS = 400;
+const LONG_PRESS_MOVE_THRESHOLD = 10;
 
 // ── Props ──
 
@@ -110,6 +136,8 @@ interface MessageListProps {
   scrollToBottom: () => void;
   onReply: (msg: Message) => void;
   onDelete: (msgId: string) => void;
+  onReact: (msgId: string, msgPubkey: string, emoji: string) => void;
+  onCopy: (text: string) => void;
   loading?: boolean;
   searchQuery?: string;
   typingUsers?: string[];
@@ -128,11 +156,20 @@ export default function MessageList({
   scrollToBottom,
   onReply,
   onDelete,
+  onReact,
+  onCopy,
   loading = false,
   searchQuery = "",
   typingUsers = [],
 }: MessageListProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // ── Context menu state ──
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+
+  // ── Long-press refs (mobile context menu) ──
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressStart = useRef<{ x: number; y: number } | null>(null);
 
   // ── Message animation: track which IDs are "new" ──
   const prevIdSet = useRef<Set<string>>(new Set());
@@ -146,17 +183,9 @@ export default function MessageList({
     }
     prevIdSet.current = currentIds;
     if (fresh.size > 0) setNewIds(fresh);
-    // Clear animation class after it plays
     const t = setTimeout(() => setNewIds(new Set()), 400);
     return () => clearTimeout(t);
   }, [messages]);
-
-  // ── Swipe state ──
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
-  const touchStartTime = useRef(0);
-  const draggingId = useRef<string | null>(null);
-  const [swipeOffset, setSwipeOffset] = useState<Record<string, number>>({});
 
   // ── Search ──
   const q = searchQuery.trim();
@@ -190,6 +219,43 @@ export default function MessageList({
     );
   }, [textFilter]);
 
+  // ── Context menu handlers ──
+  const openContextMenu = useCallback((e: React.MouseEvent, msg: Message) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent, msg: Message) => {
+    if (confirmDeleteId) return;
+    if (msg.pending) return;
+    const t = e.touches[0];
+    longPressStart.current = { x: t.clientX, y: t.clientY };
+    longPressTimer.current = setTimeout(() => {
+      setCtxMenu({ x: t.clientX, y: t.clientY - 60, msg });
+      longPressStart.current = null;
+    }, LONG_PRESS_MS);
+  }, [confirmDeleteId]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!longPressStart.current || !longPressTimer.current) return;
+    const t = e.touches[0];
+    const dx = Math.abs(t.clientX - longPressStart.current.x);
+    const dy = Math.abs(t.clientY - longPressStart.current.y);
+    if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+      longPressStart.current = null;
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    longPressStart.current = null;
+  }, []);
+
   return (
     <>
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-1 relative z-10">
@@ -212,8 +278,6 @@ export default function MessageList({
           const profile = profiles[msg.pubkey];
           const nearName = msg.sender || msg.pubkey.slice(0, 8) + "...";
           const displayName = mine ? "you" : nearName;
-          const showAvatar = !mine;
-          const showSender = !mine;
 
           const prev = i > 0 ? filtered[i - 1] : undefined;
           const sameSender = !!(prev && prev.pubkey === msg.pubkey && msg.created_at - prev.created_at < 120);
@@ -222,9 +286,6 @@ export default function MessageList({
           const isLastInGroup = sameSender && !nextSameSender;
 
           const showDateSep = !prev || isDifferentDay(prev.created_at, msg.created_at);
-          const offset = swipeOffset[msg.id] || 0;
-          const absOffset = Math.abs(offset);
-          const hinting = absOffset > SWIPE_THRESHOLD * 0.3;
           const isNew = newIds.has(msg.id) && !msg.pending;
 
           return (
@@ -239,47 +300,15 @@ export default function MessageList({
                 </div>
               )}
               <div
-                className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} group relative ${isNew ? "msg-slide-in" : ""}`}
-                onTouchStart={(e) => {
-                  if (confirmDeleteId) return;
-                  if (msg.pending) return;
-                  const t = e.touches[0];
-                  touchStartX.current = t.clientX;
-                  touchStartY.current = t.clientY;
-                  touchStartTime.current = Date.now();
-                  draggingId.current = msg.id;
-                }}
-                onTouchMove={(e) => {
-                  if (draggingId.current !== msg.id) return;
-                  const t = e.touches[0];
-                  const dx = t.clientX - touchStartX.current;
-                  const dy = t.clientY - touchStartY.current;
-                  if (Math.abs(dy) > Math.abs(dx) + 5) {
-                    draggingId.current = null;
-                    setSwipeOffset((prev) => ({ ...prev, [msg.id]: 0 }));
-                    return;
-                  }
-                  let clamped = dx;
-                  if (dx > 0) clamped = Math.min(dx, SWIPE_MAX);
-                  else if (dx < 0 && mine) clamped = Math.max(dx, -SWIPE_MAX);
-                  else { clamped = 0; draggingId.current = null; }
-                  setSwipeOffset((prev) => ({ ...prev, [msg.id]: clamped }));
-                }}
-                onTouchEnd={() => {
-                  if (draggingId.current !== msg.id) return;
-                  const finalOffset = swipeOffset[msg.id] || 0;
-                  if (finalOffset > SWIPE_THRESHOLD) {
-                    onReply(msg);
-                  } else if (finalOffset < -SWIPE_THRESHOLD && mine) {
-                    setConfirmDeleteId(msg.id);
-                  }
-                  draggingId.current = null;
-                  setSwipeOffset((prev) => ({ ...prev, [msg.id]: 0 }));
-                }}
+                className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} relative ${isNew ? "msg-slide-in" : ""}`}
+                onContextMenu={(e) => { if (!msg.pending) openContextMenu(e, msg); }}
+                onTouchStart={(e) => handleTouchStart(e, msg)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
               >
                 {!mine && (
                   <div className="w-8 shrink-0 flex items-center justify-center">
-                    {showAvatar && !sameSender && (
+                    {!sameSender && (
                       <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
                         {profile?.picture ? (
                           <img src={profile.picture} className="w-full h-full object-cover" alt="" />
@@ -291,95 +320,56 @@ export default function MessageList({
                   </div>
                 )}
                 <div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${mine ? "max-w-[90%] md:max-w-[80%]" : "max-w-[85%] md:max-w-[70%]"}`}>
-                  {showSender && !sameSender && (
+                  {!mine && !sameSender && (
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
-                  <div className="flex items-end gap-1.5">
-                    <button
-                      onClick={() => onReply(msg)}
-                      className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                      style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
-                      title="Reply"
-                    >
-                      <Reply size={12} />
-                    </button>
-                    <div
-                      className="px-3 py-2 text-sm break-words leading-relaxed relative select-none"
-                      style={{
-                        backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
-                        border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
-                        borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
-                        opacity: msg.pending ? 0.6 : 1,
-                        transform: `translateX(${offset}px)`,
-                        transition: draggingId.current === msg.id ? "none" : "transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                        boxShadow: hinting && offset > 0
-                          ? `inset ${SWIPE_MAX}px 0 40px -20px rgba(0,236,151,0.15)`
-                          : hinting && offset < 0
-                          ? `inset -${SWIPE_MAX}px 0 40px -20px rgba(239,68,68,0.15)`
-                          : "none",
-                      }}
-                    >
-                      {offset > 15 && (
-                        <div className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1"
-                          style={{ right: "100%", marginRight: 8, color: "var(--accent)", opacity: Math.min(absOffset / SWIPE_THRESHOLD, 1) }}>
-                          <Reply size={18} />
-                          <span className="text-[10px] font-medium">Reply</span>
-                        </div>
-                      )}
-                      {offset < -15 && mine && (
-                        <div className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1"
-                          style={{ left: "100%", marginLeft: 8, color: "#ef4444", opacity: Math.min(absOffset / SWIPE_THRESHOLD, 1) }}>
-                          <span className="text-[10px] font-medium">Delete</span>
-                          <Trash2 size={18} />
-                        </div>
-                      )}
-                      {msg.replyToId && (
-                        <div
-                          className="mb-1.5 px-2 py-1 rounded text-xs border-l-2"
-                          style={{
-                            backgroundColor: "rgba(0,236,151,0.05)",
-                            borderLeftColor: "var(--accent)",
-                            color: "var(--muted)",
-                          }}
-                        >
-                          <span className="font-semibold" style={{ color: "var(--text)" }}>{msg.replyToSender || "unknown"}</span>
-                          {msg.replyToContent && (() => {
-                            const imgMatch = msg.replyToContent.match(/(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?)\s*$/i);
-                            if (imgMatch) {
-                              const textContent = msg.replyToContent.replace(imgMatch[0], "").trim();
-                              return (
-                                <span className="ml-1">
-                                  {textContent && <span className="truncate inline-block max-w-[120px] align-bottom">{textContent.length > 40 ? textContent.slice(0, 40) + "..." : textContent} </span>}
-                                  <img src={imgMatch[1]} alt="" className="inline-block max-h-[40px] max-w-[60px] rounded object-cover align-middle ml-1" style={{ border: "1px solid var(--border)" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                                </span>
-                              );
-                            }
-                            return <span className="ml-1 truncate inline-block max-w-[200px] align-bottom" style={{ color: "var(--muted)" }}>{msg.replyToContent.length > 60 ? msg.replyToContent.slice(0, 60) + "..." : msg.replyToContent}</span>;
-                          })()}
-                        </div>
-                      )}
-                      {q ? <>{highlight(msg.content)}</> : <ParsedContent content={msg.content} />}
-                      {msg.failed && <span className="text-[9px] text-red-400 ml-1">(failed)</span>}
-                      {isLastInGroup && (
-                        <div className="text-right mt-0.5">
-                          <span className="text-[9px] opacity-50">
-                            {timeOnly(msg.created_at)}
-                            {msg.pending && " · sending..."}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    {mine && (
-                      <button
-                        onClick={() => setConfirmDeleteId(msg.id)}
-                        className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "#ef4444" }}
-                        title="Delete"
+                  <div
+                    className="px-3 py-2 text-sm break-words leading-relaxed relative select-none"
+                    style={{
+                      backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
+                      border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
+                      borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+                      opacity: msg.pending ? 0.6 : 1,
+                    }}
+                  >
+                    {msg.replyToId && (
+                      <div
+                        className="mb-1.5 px-2 py-1 rounded text-xs border-l-2"
+                        style={{
+                          backgroundColor: "rgba(0,236,151,0.05)",
+                          borderLeftColor: "var(--accent)",
+                          color: "var(--muted)",
+                        }}
                       >
-                        <Trash2 size={12} />
-                      </button>
+                        <span className="font-semibold" style={{ color: "var(--text)" }}>{msg.replyToSender || "unknown"}</span>
+                        {msg.replyToContent && (() => {
+                          const imgMatch = msg.replyToContent.match(/(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?)\s*$/i);
+                          if (imgMatch) {
+                            const textContent = msg.replyToContent.replace(imgMatch[0], "").trim();
+                            return (
+                              <span className="ml-1">
+                                {textContent && <span className="truncate inline-block max-w-[120px] align-bottom">{textContent.length > 40 ? textContent.slice(0, 40) + "..." : textContent} </span>}
+                                <img src={imgMatch[1]} alt="" className="inline-block max-h-[40px] max-w-[60px] rounded object-cover align-middle ml-1" style={{ border: "1px solid var(--border)" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                              </span>
+                            );
+                          }
+                          return <span className="ml-1 truncate inline-block max-w-[200px] align-bottom" style={{ color: "var(--muted)" }}>{msg.replyToContent.length > 60 ? msg.replyToContent.slice(0, 60) + "..." : msg.replyToContent}</span>;
+                        })()}
+                      </div>
+                    )}
+                    {q ? <>{highlight(msg.content)}</> : <ParsedContent content={msg.content} />}
+                    {msg.failed && <span className="text-[9px] text-red-400 ml-1">(failed)</span>}
+                    {isLastInGroup && (
+                      <div className="text-right mt-0.5">
+                        <span className="text-[9px] opacity-50">
+                          {timeOnly(msg.created_at)}
+                          {msg.pending && " · sending..."}
+                        </span>
+                      </div>
                     )}
                   </div>
+                  {/* Reactions */}
+                  <ReactionBar reactions={msg.reactions} myPubkey={myPubkey} />
                   {!sameSender && (
                     <span className="text-[9px] mt-0.5 px-1" style={{ color: "var(--muted)" }}>
                       {timeOnly(msg.created_at)}
@@ -466,6 +456,20 @@ export default function MessageList({
         >
           <ChevronDown size={18} />
         </button>
+      )}
+      {/* Context menu */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          msg={ctxMenu.msg}
+          myPubkey={myPubkey}
+          onReply={onReply}
+          onReact={onReact}
+          onDelete={(id) => setConfirmDeleteId(id)}
+          onCopy={onCopy}
+          onClose={() => setCtxMenu(null)}
+        />
       )}
     </>
   );

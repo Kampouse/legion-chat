@@ -128,6 +128,37 @@ export async function signProfileUpdate(signer: NostrSigner, profile: NostrProfi
   });
 }
 
+// ── NIP-25 Reactions (kind 7) ──
+
+export async function signReaction(
+  signer: NostrSigner,
+  eventId: string,
+  eventPubkey: string,
+  emoji: string,
+): Promise<any> {
+  return signer.signEvent({
+    kind: 7,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ["e", eventId],
+      ["p", eventPubkey],
+    ],
+    content: emoji,
+  });
+}
+
+export async function signReactionDelete(
+  signer: NostrSigner,
+  reactionEventId: string,
+): Promise<any> {
+  return signer.signEvent({
+    kind: 5,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [["e", reactionEventId]],
+    content: "delete reaction",
+  });
+}
+
 // ── NEAR Social profile fetch ──
 
 export interface NearSocialProfile {

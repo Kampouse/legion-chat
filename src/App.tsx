@@ -19,6 +19,7 @@ import {
   signChannelMessage,
   signProfileUpdate,
   signDeleteEvent,
+  signReaction,
   connectRelayWithReconnect,
   subscribeChannel,
   publishWithAck,
@@ -269,6 +270,31 @@ function ChatApp() {
               const origUnsub = unsub;
               unsub = () => { origUnsub(); unsubTyping(); };
             }
+
+            // Subscribe to reactions (NIP-25 kind 7)
+            const reactionSub = relay.subscribe([{
+              kinds: [7],
+              "#e": Object.keys(bindingsRef.current?.pubkeyIndex || {}),
+            }], {
+              onevent: (evt: any) => {
+                const eTag = (evt.tags || []).find((t: string[]) => t[0] === "e");
+                if (!eTag) return;
+                const targetId = eTag[1];
+                const emoji = evt.content || "👍";
+                setMessages((prev) => prev.map((m) => {
+                  if (m.id !== targetId) return m;
+                  const reactions = { ...m.reactions };
+                  const current = reactions[emoji] || [];
+                  if (current.includes(evt.pubkey)) return m;
+                  reactions[emoji] = [...current, evt.pubkey];
+                  return { ...m, reactions };
+                }));
+              },
+              oneose: () => {},
+            });
+            // Chain cleanup
+            const prevUnsub = unsub;
+            unsub = () => { prevUnsub(); try { reactionSub.close(); } catch {} };
           },
         );
 
@@ -439,6 +465,27 @@ function ChatApp() {
     }
   }, [signer]);
 
+  const handleReact = useCallback(async (msgId: string, msgPubkey: string, emoji: string) => {
+    if (!signer || !relayRef.current) return;
+    try {
+      const event = await signReaction(signer, msgId, msgPubkey, emoji);
+      await relayRef.current.publish(event);
+      // Optimistic update
+      setMessages((prev) => prev.map((m) => {
+        if (m.id !== msgId) return m;
+        const reactions = { ...m.reactions };
+        const current = reactions[emoji] || [];
+        reactions[emoji] = [...current, myPubkey];
+        return { ...m, reactions };
+      }));
+    } catch {}
+  }, [signer, myPubkey]);
+
+  const handleCopy = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    showToast("Copied!");
+  }, []);
+
   const handleSignOut = () => {
     wallet.disconnect(); signer?.close?.();
     setSigner(null); setNsec(""); setMyPubkey(""); setSignerType(null); setMessages([]);
@@ -593,6 +640,8 @@ function ChatApp() {
               scrollToBottom={scrollToBottom}
               onReply={(msg) => setReplyTo({ id: msg.id, content: msg.content, sender: msg.sender || msg.pubkey.slice(0, 8) })}
               onDelete={handleDeleteMessage}
+              onReact={handleReact}
+              onCopy={handleCopy}
               loading={messagesLoading}
               searchQuery={searchQuery}
               typingUsers={typingPubkeys}
