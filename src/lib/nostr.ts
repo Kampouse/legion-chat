@@ -164,16 +164,19 @@ export async function fetchNearSocialProfile(accountId: string): Promise<NearSoc
     const profile = parsed?.[accountId]?.profile;
     if (!profile) return null;
 
-    // Build image URL from ipfs_cid if present
+    // Build image URL — NEAR Social image can be: string (ipfs_cid), { ipfs_cid }, or { url }
     let imageUrl: string | undefined;
     if (profile.image) {
       if (typeof profile.image === "string") {
-        // Could be ipfs_cid or url
         imageUrl = profile.image.startsWith("http")
           ? profile.image
           : `https://ipfs.near.social/ipfs/${profile.image}`;
-      } else if (profile.image.ipfs_cid) {
-        imageUrl = `https://ipfs.near.social/ipfs/${profile.image.ipfs_cid}`;
+      } else if (typeof profile.image === "object") {
+        if (profile.image.url) {
+          imageUrl = profile.image.url;
+        } else if (profile.image.ipfs_cid) {
+          imageUrl = `https://ipfs.near.social/ipfs/${profile.image.ipfs_cid}`;
+        }
       }
     }
 
