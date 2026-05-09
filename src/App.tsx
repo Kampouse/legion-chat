@@ -251,33 +251,36 @@ function ChatApp() {
                   } catch {} // best-effort; reply preview stays minimal if fetch fails
                 })();
               }
-            }, () => { setMessagesLoading(false); });
-
-            // Subscribe to reactions (NIP-25 kind 7)
-            const msgIds = messagesRef.current.map((m) => m.id);
-            const reactionSub = msgIds.length > 0 ? relay.subscribe([{
-              kinds: [7],
-              "#e": msgIds,
-            }], {
-              onevent: (evt: any) => {
-                const eTag = (evt.tags || []).find((t: string[]) => t[0] === "e");
-                if (!eTag) return;
-                const targetId = eTag[1];
-                const emoji = evt.content || "👍";
-                setMessages((prev) => prev.map((m) => {
-                  if (m.id !== targetId) return m;
-                  const reactions = { ...(m.reactions || {}) };
-                  const current = reactions[emoji] || [];
-                  if (current.includes(evt.pubkey)) return m;
-                  reactions[emoji] = [...current, evt.pubkey];
-                  return { ...m, reactions };
-                }));
-              },
-              oneose: () => {},
-            }) : null;
-            // Chain cleanup
-            const prevUnsub = unsub;
-            unsub = () => { prevUnsub(); try { reactionSub?.close(); } catch {} };
+            }, () => {
+              setMessagesLoading(false);
+              // After messages are loaded, fetch historical + subscribe to reactions
+              const loadedIds = messagesRef.current.map((m) => m.id);
+              if (loadedIds.length > 0) {
+                const reactionSub = relay.subscribe([{
+                  kinds: [7],
+                  "#e": loadedIds,
+                }], {
+                  onevent: (evt: any) => {
+                    const eTag = (evt.tags || []).find((t: string[]) => t[0] === "e");
+                    if (!eTag) return;
+                    const targetId = eTag[1];
+                    const emoji = evt.content || "👍";
+                    setMessages((prev) => prev.map((m) => {
+                      if (m.id !== targetId) return m;
+                      const reactions = { ...(m.reactions || {}) };
+                      const current = reactions[emoji] || [];
+                      if (current.includes(evt.pubkey)) return m;
+                      reactions[emoji] = [...current, evt.pubkey];
+                      return { ...m, reactions };
+                    }));
+                  },
+                  oneose: () => {},
+                });
+                // Chain cleanup
+                const prevUnsub = unsub;
+                unsub = () => { prevUnsub(); try { reactionSub?.close(); } catch {} };
+              }
+            });
           },
         );
 
