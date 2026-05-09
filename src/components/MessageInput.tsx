@@ -48,9 +48,9 @@ export default function MessageInput({
   }, [input, setInput]);
 
   return (
-    <>
+    <div className="border-t relative" style={{ borderColor: "var(--border)" }}>
       {replyTo && (
-        <div className="px-4 py-1.5 flex items-center gap-2 text-xs" style={{ backgroundColor: "var(--surface)", borderTop: "1px solid var(--border)" }}>
+        <div className="px-4 pt-2.5 pb-0 flex items-center gap-2 text-xs">
           <div className="flex-1 min-w-0">
             <span style={{ color: "var(--muted)" }}>Replying to <strong style={{ color: "var(--text)" }}>{replyingTo}</strong></span>
             {replyingToContent && (
@@ -59,14 +59,14 @@ export default function MessageInput({
           </div>
           <button
             onClick={() => setReplyTo(null)}
-            className="ml-auto w-8 h-8 rounded-full flex items-center justify-center shrink-0 active:opacity-60"
-            style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)" }}
+            className="ml-auto w-6 h-6 rounded-full flex items-center justify-center shrink-0 active:opacity-60"
+            style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
           >
-            <X size={14} />
+            <X size={12} />
           </button>
         </div>
       )}
-      <div className="p-3 border-t flex items-end gap-2 relative" style={{ borderColor: "var(--border)" }}>
+      <div className="p-3 flex items-end gap-2">
         {/* Emoji picker popup */}
         {showEmoji && (
           <EmojiPicker
@@ -119,6 +119,6 @@ export default function MessageInput({
           {sending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
         </button>
       </div>
-    </>
+    </div>
   );
 }
