@@ -1,4 +1,4 @@
-import { useMemo, Fragment, useState, type RefObject } from "react";
+import { useMemo, Fragment, useState, useRef, useCallback, type RefObject } from "react";
 import type { Message, Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
 
@@ -55,6 +55,10 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+// ── Swipe constants ──
+const SWIPE_THRESHOLD = 60;   // px to trigger action
+const SWIPE_MAX = 100;        // max drag distance (clamped)
+
 interface MessageListProps {
   messages: Message[];
   myPubkey: string;
@@ -87,47 +91,22 @@ export default function MessageList({
   loading = false,
 }: MessageListProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const clearSelection = () => setSelectedId(null);
+  // ── Swipe state (per-row via refs) ──
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const touchStartTime = useRef(0);
+  const draggingId = useRef<string | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState<Record<string, number>>({});
 
-  const actionButtons = (msg: Message, isMine: boolean) => (
-    <div
-      className="flex items-center gap-1 px-2 py-1 rounded-full shadow-lg"
-      style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}
-    >
-      <button
-        onClick={(e) => { e.stopPropagation(); onReply(msg); clearSelection(); }}
-        className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
-        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
-        title="Reply"
-      >
-        ↩
-      </button>
-      {isMine && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(msg.id); clearSelection(); }}
-          className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
-          style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "#ef4444" }}
-          title="Delete"
-        >
-          ✕
-        </button>
-      )}
-    </div>
-  );
+  const clearSwipe = useCallback(() => {
+    draggingId.current = null;
+    setSwipeOffset({});
+  }, []);
 
   return (
     <>
-      {/* Backdrop to dismiss selection on tap-away (mobile) */}
-      {selectedId && (
-        <div
-          className="fixed inset-0 z-20"
-          onTouchEnd={(e) => { e.preventDefault(); clearSelection(); }}
-          onClick={clearSelection}
-        />
-      )}
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-1 relative z-10">
         {messages.length === 0 && (
           <div className="text-center py-12">
@@ -150,16 +129,18 @@ export default function MessageList({
           const showSender = !mine;
 
           const prev = i > 0 ? messages[i - 1] : undefined;
-          const next = i < messages.length - 1 ? messages[i + 1] : undefined;
 
           const sameSender = !!(prev && prev.pubkey === msg.pubkey && msg.created_at - prev.created_at < 120);
+          const next = i < messages.length - 1 ? messages[i + 1] : undefined;
           const nextSameSender = !!(next && next.pubkey === msg.pubkey && next.created_at - msg.created_at < 120);
           const isLastInGroup = sameSender && !nextSameSender;
 
           const showDateSep = !prev || isDifferentDay(prev.created_at, msg.created_at);
           const isHovered = hoveredId === msg.id;
-          const isSelected = selectedId === msg.id;
-          const showActions = (isHovered || isSelected) && !msg.pending;
+          const offset = swipeOffset[msg.id] || 0;
+          const absOffset = Math.abs(offset);
+          // Show hint color when past 30% of threshold
+          const hinting = absOffset > SWIPE_THRESHOLD * 0.3;
 
           return (
             <Fragment key={msg.id}>
@@ -176,10 +157,45 @@ export default function MessageList({
                 className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} group relative`}
                 onMouseEnter={() => setHoveredId(msg.id)}
                 onMouseLeave={() => setHoveredId(null)}
-                onTouchEnd={(e) => {
-                  if (confirmDeleteId) return; // don't interfere with delete dialog
-                  e.preventDefault();
-                  setSelectedId((prev) => (prev === msg.id ? null : msg.id));
+                onTouchStart={(e) => {
+                  if (confirmDeleteId) return;
+                  if (msg.pending) return;
+                  const t = e.touches[0];
+                  touchStartX.current = t.clientX;
+                  touchStartY.current = t.clientY;
+                  touchStartTime.current = Date.now();
+                  draggingId.current = msg.id;
+                }}
+                onTouchMove={(e) => {
+                  if (draggingId.current !== msg.id) return;
+                  const t = e.touches[0];
+                  const dx = t.clientX - touchStartX.current;
+                  const dy = t.clientY - touchStartY.current;
+                  // If scrolling vertically, cancel swipe
+                  if (Math.abs(dy) > Math.abs(dx) + 5) {
+                    draggingId.current = null;
+                    setSwipeOffset((prev) => ({ ...prev, [msg.id]: 0 }));
+                    return;
+                  }
+                  // Clamp: only allow swipe-right (reply) and swipe-left for own messages (delete)
+                  let clamped = dx;
+                  if (dx > 0) clamped = Math.min(dx, SWIPE_MAX);
+                  else if (dx < 0 && mine) clamped = Math.max(dx, -SWIPE_MAX);
+                  else { clamped = 0; draggingId.current = null; }
+                  setSwipeOffset((prev) => ({ ...prev, [msg.id]: clamped }));
+                }}
+                onTouchEnd={() => {
+                  if (draggingId.current !== msg.id) return;
+                  const finalOffset = swipeOffset[msg.id] || 0;
+                  const elapsed = Date.now() - touchStartTime.current;
+
+                  if (finalOffset > SWIPE_THRESHOLD) {
+                    onReply(msg);
+                  } else if (finalOffset < -SWIPE_THRESHOLD && mine) {
+                    setConfirmDeleteId(msg.id);
+                  }
+                  draggingId.current = null;
+                  setSwipeOffset((prev) => ({ ...prev, [msg.id]: 0 }));
                 }}
               >
                 <div className="w-8 shrink-0 flex items-center justify-center">
@@ -198,17 +214,49 @@ export default function MessageList({
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
                   <div className="flex items-end gap-1.5">
+                    {/* Desktop hover actions */}
+                    {isHovered && !msg.pending && (
+                      <button
+                        onClick={() => onReply(msg)}
+                        className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex"
+                        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
+                        title="Reply"
+                      >
+                        ↩
+                      </button>
+                    )}
                     <div
-                      className="px-3 py-2 text-sm break-words leading-relaxed relative"
+                      className="px-3 py-2 text-sm break-words leading-relaxed relative select-none"
                       style={{
                         backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
                         border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
                         borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                         opacity: msg.pending ? 0.6 : 1,
-                        outline: isSelected ? "2px solid var(--accent)" : undefined,
-                        outlineOffset: 1,
+                        transform: `translateX(${offset}px)`,
+                        transition: draggingId.current === msg.id ? "none" : "transform 0.2s ease",
+                        // Tint background when swiping
+                        boxShadow: hinting && offset > 0
+                          ? `inset ${SWIPE_MAX}px 0 40px -20px rgba(0,236,151,0.15)`
+                          : hinting && offset < 0
+                          ? `inset -${SWIPE_MAX}px 0 40px -20px rgba(239,68,68,0.15)`
+                          : "none",
                       }}
                     >
+                      {/* Swipe hint icons — visible under the bubble as it slides */}
+                      {offset > 15 && (
+                        <div className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1"
+                          style={{ right: "100%", marginRight: 8, color: "var(--accent)", opacity: Math.min(absOffset / SWIPE_THRESHOLD, 1) }}>
+                          <span className="text-lg">↩</span>
+                          <span className="text-[10px] font-medium">Reply</span>
+                        </div>
+                      )}
+                      {offset < -15 && mine && (
+                        <div className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1"
+                          style={{ left: "100%", marginLeft: 8, color: "#ef4444", opacity: Math.min(absOffset / SWIPE_THRESHOLD, 1) }}>
+                          <span className="text-[10px] font-medium">Delete</span>
+                          <span className="text-lg">✕</span>
+                        </div>
+                      )}
                       {/* Reply preview */}
                       {msg.replyToId && (
                         <div
@@ -236,13 +284,17 @@ export default function MessageList({
                         </div>
                       )}
                     </div>
+                    {isHovered && mine && !msg.pending && (
+                      <button
+                        onClick={() => setConfirmDeleteId(msg.id)}
+                        className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex"
+                        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "#ef4444" }}
+                        title="Delete"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
-                  {/* Action bar — shown on desktop hover or mobile tap-select */}
-                  {showActions && !msg.pending && (
-                    <div className="mt-1">
-                      {actionButtons(msg, mine)}
-                    </div>
-                  )}
                   {!sameSender && (
                     <span className="text-[9px] mt-0.5 px-1" style={{ color: "var(--muted)" }}>
                       {timeOnly(msg.created_at)}
@@ -253,15 +305,13 @@ export default function MessageList({
               </div>
               {confirmDeleteId === msg.id && (
                 <div
-                  className="absolute z-50"
-                  style={{
-                    top: "100%",
-                    right: 0,
-                    marginTop: 4,
-                  }}
+                  className="fixed inset-0 z-50 flex items-center justify-center"
+                  onClick={() => setConfirmDeleteId(null)}
                 >
+                  <div className="absolute inset-0 bg-black/40" />
                   <div
-                    className="rounded-lg shadow-xl p-3 min-w-[260px]"
+                    className="relative rounded-xl shadow-2xl p-4 min-w-[280px] max-w-[90vw]"
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       backgroundColor: "var(--bg)",
                       border: "1px solid var(--border)",
@@ -270,13 +320,13 @@ export default function MessageList({
                     <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
                       Delete this message?
                     </p>
-                    <p className="text-xs mt-1 leading-relaxed" style={{ color: "var(--muted)" }}>
+                    <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "var(--muted)" }}>
                       This asks the relay to remove it. Other relays may still have a copy.
                     </p>
-                    <div className="flex justify-end gap-2 mt-3">
+                    <div className="flex justify-end gap-2 mt-4">
                       <button
                         onClick={() => setConfirmDeleteId(null)}
-                        className="px-3 py-1 text-xs rounded"
+                        className="px-4 py-2 text-xs rounded-lg font-medium"
                         style={{
                           backgroundColor: "var(--surface)",
                           border: "1px solid var(--border)",
@@ -290,7 +340,7 @@ export default function MessageList({
                           onDelete(msg.id);
                           setConfirmDeleteId(null);
                         }}
-                        className="px-3 py-1 text-xs rounded font-semibold"
+                        className="px-4 py-2 text-xs rounded-lg font-semibold"
                         style={{
                           backgroundColor: "#dc2626",
                           border: "1px solid #dc2626",
