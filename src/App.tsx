@@ -409,7 +409,16 @@ function ChatApp() {
       {screen === "chat" && (
         <header className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
           <div className="flex items-center gap-2 max-w-3xl mx-auto w-full">
-            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: connInfo.color }} title={connInfo.label} />
+            <button
+              onClick={() => { if (connState !== "connected") reconnectFnRef.current?.(); }}
+              className="flex items-center gap-2"
+              title={connInfo.label}
+            >
+              <span
+                className={`w-2 h-2 rounded-full inline-block ${connState !== "connected" ? "animate-pulse" : ""}`}
+                style={{ backgroundColor: connInfo.color }}
+              />
+            </button>
             <span className="font-semibold text-sm">Legion Chat</span>
             <div className="flex-1" />
             <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{accountId}</span>
@@ -439,20 +448,6 @@ function ChatApp() {
         )}
         {screen === "chat" && (
           <div className="flex flex-col w-full h-full max-w-3xl mx-auto" style={{ backgroundColor: "var(--bg)" }}>
-            {connState !== "connected" && (
-              <div className="px-4 py-2 text-xs text-center flex items-center justify-center gap-3" style={{ backgroundColor: connState === "connecting" ? "rgba(251,191,36,0.1)" : "rgba(239,68,68,0.1)", color: connState === "connecting" ? "#fbbf24" : "#ef4444" }}>
-                <span>{connState === "connecting" ? "Connecting to relay..." : "Disconnected from relay."}</span>
-                {connState !== "connecting" && (
-                  <button
-                    onClick={() => reconnectFnRef.current?.()}
-                    className="px-2 py-0.5 rounded text-xs font-medium border"
-                    style={{ borderColor: "currentColor", color: "inherit" }}
-                  >
-                    Reconnect
-                  </button>
-                )}
-              </div>
-            )}
             <MessageList
               messages={messages}
               myPubkey={myPubkey}
