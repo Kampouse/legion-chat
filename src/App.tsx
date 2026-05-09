@@ -486,9 +486,9 @@ function ChatApp() {
                 <button onClick={() => { setShowSettings(false); setEditProfile(null); }} className="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style={{ color: "var(--muted)", backgroundColor: "var(--surface)" }}>✕</button>
               </div>
               <div className="overflow-y-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 overflow-hidden">
                   {/* Left: Account info */}
-                  <div className="p-6 space-y-4 border-b md:border-b-0 md:border-r" style={{ borderColor: "var(--border)" }}>
+                  <div className="p-6 space-y-4 border-b md:border-b-0 md:border-r min-w-0 overflow-hidden" style={{ borderColor: "var(--border)" }}>
                     <h3 className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>Account</h3>
                     <div className="space-y-3">
                       <div>
@@ -497,7 +497,7 @@ function ChatApp() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-medium mb-1.5 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Nostr Public Key</label>
-                        <div className="px-3 py-2 rounded-lg text-xs font-mono break-all leading-relaxed" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{myPubkey}</div>
+                        <div className="px-3 py-2 rounded-lg text-xs font-mono break-all leading-relaxed overflow-hidden" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{myPubkey}</div>
                       </div>
                     </div>
 
@@ -514,13 +514,13 @@ function ChatApp() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-medium mb-1.5 uppercase tracking-wider" style={{ color: "var(--muted)" }}>Channel</label>
-                        <div className="px-3 py-2 rounded-lg text-xs font-mono break-all leading-relaxed" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{CHANNEL_ID}</div>
+                        <div className="px-3 py-2 rounded-lg text-xs font-mono break-all leading-relaxed overflow-hidden" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{CHANNEL_ID}</div>
                       </div>
                     </div>
                   </div>
 
                   {/* Right: Profile */}
-                  <div className="p-6 space-y-4">
+                  <div className="p-6 space-y-4 min-w-0 overflow-hidden">
                     <div className="flex items-center justify-between">
                       <h3 className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--muted)" }}>Nostr Profile</h3>
                       {editProfile === null && (
