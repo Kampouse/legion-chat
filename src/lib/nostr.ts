@@ -273,8 +273,14 @@ export async function publishWithAck(
   relay: Relay,
   event: any,
 ): Promise<PublishResult> {
+  const PUBLISH_TIMEOUT = 5000;
   try {
-    await relay.publish(event);
+    await Promise.race([
+      relay.publish(event),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("publish timed out")), PUBLISH_TIMEOUT)
+      ),
+    ]);
     return { ok: true, eventId: event.id, message: "" };
   } catch (e: any) {
     return { ok: false, eventId: event.id, message: e.message || "publish failed" };

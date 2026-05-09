@@ -369,10 +369,13 @@ function ChatApp() {
     try {
       const event = await signChannelMessage(signer, content, CHANNEL_ID, currentReplyTo);
       const result = await publishWithAck(relay, event);
+      const timedOut = !result.ok && result.message.includes("timed out");
       setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false, failed: !result.ok } : m))
+        prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false, failed: !result.ok && !timedOut } : m))
       );
-      if (!result.ok) setError("Message rejected: " + (result.message || "unknown reason"));
+      if (!result.ok && !timedOut) {
+        setError("Message rejected: " + (result.message || "unknown reason"));
+      }
     } catch (e: any) {
       setMessages((prev) =>
         prev.map((m) => (m.id === optimisticId ? { ...m, pending: false, failed: true } : m))
