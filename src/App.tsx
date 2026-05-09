@@ -461,26 +461,77 @@ function ChatApp() {
         {screen === "chat" && (
           <div className="flex flex-col w-full h-full max-w-3xl mx-auto" style={{ backgroundColor: "var(--bg)" }}>
             {showSearch && (
-              <div className="px-4 py-2 flex items-center gap-2 border-b" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search messages..."
-                  autoFocus
-                  className="flex-1 px-3 py-2 rounded-lg text-sm"
-                  style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)", outline: "none" }}
-                />
-                {searchQuery.trim() && (() => {
-                  const fm = searchQuery.trim().match(/\bfrom:(\S+)/i);
-                  const ff = fm ? fm[1].toLowerCase() : null;
-                  const tf = searchQuery.trim().replace(/\bfrom:\S+/i, "").trim().toLowerCase();
-                  const count = messages.filter((m) => {
-                    if (ff) { const s = (m.sender || m.pubkey.slice(0, 8)).toLowerCase(); if (!s.includes(ff)) return false; }
-                    if (tf) { if (!m.content.toLowerCase().includes(tf)) return false; }
-                    return true;
-                  }).length;
-                  return <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>{count} found</span>;
+              <div className="px-4 py-2 border-b relative" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search... type @ to filter by user"
+                    autoFocus
+                    className="flex-1 px-3 py-2 rounded-lg text-sm"
+                    style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)", outline: "none" }}
+                  />
+                  {searchQuery.trim() && (() => {
+                    const fm = searchQuery.trim().match(/\bfrom:(\S+)/i);
+                    const ff = fm ? fm[1].toLowerCase() : null;
+                    const tf = searchQuery.trim().replace(/\bfrom:\S+/i, "").trim().toLowerCase();
+                    const count = messages.filter((m) => {
+                      if (ff) { const s = (m.sender || m.pubkey.slice(0, 8)).toLowerCase(); if (!s.includes(ff)) return false; }
+                      if (tf) { if (!m.content.toLowerCase().includes(tf)) return false; }
+                      return true;
+                    }).length;
+                    return <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>{count} found</span>;
+                  })()}
+                </div>
+                {/* @ user dropdown */}
+                {(() => {
+                  const atMatch = searchQuery.match(/@(\S*)$/);
+                  if (!atMatch) return null;
+                  const partial = atMatch[1].toLowerCase();
+                  // Build unique user list from messages + profiles
+                  const seen = new Map<string, { name: string; pubkey: string }>();
+                  for (const m of messages) {
+                    const name = m.sender || m.pubkey.slice(0, 8) + "...";
+                    if (!seen.has(name.toLowerCase())) {
+                      seen.set(name.toLowerCase(), { name, pubkey: m.pubkey });
+                    }
+                  }
+                  const users = [...seen.values()].filter((u) =>
+                    u.name.toLowerCase().includes(partial)
+                  ).slice(0, 8);
+                  if (users.length === 0) return null;
+                  return (
+                    <div
+                      className="absolute left-4 right-4 top-full mt-1 rounded-lg shadow-lg z-50 overflow-hidden"
+                      style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}
+                    >
+                      {users.map((u) => {
+                        const profile = profiles[u.pubkey];
+                        return (
+                          <button
+                            key={u.pubkey}
+                            onClick={() => {
+                              // Replace @partial with from:name
+                              const replaced = searchQuery.replace(/@\S*$/, `from:${u.name} `);
+                              setSearchQuery(replaced);
+                            }}
+                            className="w-full px-3 py-2 flex items-center gap-2 text-sm text-left hover:opacity-80 active:opacity-60"
+                            style={{ color: "var(--text)" }}
+                          >
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold overflow-hidden shrink-0" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
+                              {profile?.picture ? (
+                                <img src={profile.picture} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                u.name.slice(0, 2).toUpperCase()
+                              )}
+                            </div>
+                            <span className="truncate">{u.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
                 })()}
               </div>
             )}
