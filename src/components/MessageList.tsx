@@ -233,18 +233,20 @@ export default function MessageList({
                   setSwipeOffset((prev) => ({ ...prev, [msg.id]: 0 }));
                 }}
               >
-                <div className="w-8 shrink-0 flex items-center justify-center">
-                  {showAvatar && !sameSender && (
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
-                      {profile?.picture ? (
-                        <img src={profile.picture} className="w-full h-full object-cover" alt="" />
-                      ) : (
-                        initials(nearName)
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[85%] md:max-w-[70%]`}>
+                {!mine && (
+                  <div className="w-8 shrink-0 flex items-center justify-center">
+                    {showAvatar && !sameSender && (
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
+                        {profile?.picture ? (
+                          <img src={profile.picture} className="w-full h-full object-cover" alt="" />
+                        ) : (
+                          initials(nearName)
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className={`flex flex-col ${mine ? "items-end" : "items-start"} ${mine ? "max-w-[90%] md:max-w-[80%]" : "max-w-[85%] md:max-w-[70%]"}`}>
                   {showSender && !sameSender && (
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
