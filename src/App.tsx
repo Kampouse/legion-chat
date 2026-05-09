@@ -70,7 +70,10 @@ function ChatApp() {
 
   const relayRef = useRef<Relay | null>(null);
   const bindingsRef = useRef<BindingCache | null>(null);
+  const messagesRef = useRef<Message[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Keep messagesRef in sync for subscription filters
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectFnRef = useRef<(() => void) | null>(null);
   const reconnectHandleRef = useRef<ReconnectHandle | null>(null);
@@ -272,9 +275,10 @@ function ChatApp() {
             }
 
             // Subscribe to reactions (NIP-25 kind 7)
-            const reactionSub = relay.subscribe([{
+            const msgIds = messagesRef.current.map((m) => m.id);
+            const reactionSub = msgIds.length > 0 ? relay.subscribe([{
               kinds: [7],
-              "#e": Object.keys(bindingsRef.current?.pubkeyIndex || {}),
+              "#e": msgIds,
             }], {
               onevent: (evt: any) => {
                 const eTag = (evt.tags || []).find((t: string[]) => t[0] === "e");
@@ -283,7 +287,7 @@ function ChatApp() {
                 const emoji = evt.content || "👍";
                 setMessages((prev) => prev.map((m) => {
                   if (m.id !== targetId) return m;
-                  const reactions = { ...m.reactions };
+                  const reactions = { ...(m.reactions || {}) };
                   const current = reactions[emoji] || [];
                   if (current.includes(evt.pubkey)) return m;
                   reactions[emoji] = [...current, evt.pubkey];
@@ -291,10 +295,10 @@ function ChatApp() {
                 }));
               },
               oneose: () => {},
-            });
+            }) : null;
             // Chain cleanup
             const prevUnsub = unsub;
-            unsub = () => { prevUnsub(); try { reactionSub.close(); } catch {} };
+            unsub = () => { prevUnsub(); try { reactionSub?.close(); } catch {} };
           },
         );
 
@@ -467,18 +471,29 @@ function ChatApp() {
 
   const handleReact = useCallback(async (msgId: string, msgPubkey: string, emoji: string) => {
     if (!signer || !relayRef.current) return;
+    // Optimistic update FIRST — show immediately, don't wait for relay
+    setMessages((prev) => prev.map((m) => {
+      if (m.id !== msgId) return m;
+      const reactions = { ...(m.reactions || {}) };
+      const current = reactions[emoji] || [];
+      if (current.includes(myPubkey)) return m; // already reacted
+      reactions[emoji] = [...current, myPubkey];
+      return { ...m, reactions };
+    }));
     try {
       const event = await signReaction(signer, msgId, msgPubkey, emoji);
       await relayRef.current.publish(event);
-      // Optimistic update
+    } catch {
+      // Publish failed — revert optimistic update
       setMessages((prev) => prev.map((m) => {
         if (m.id !== msgId) return m;
-        const reactions = { ...m.reactions };
+        const reactions = { ...(m.reactions || {}) };
         const current = reactions[emoji] || [];
-        reactions[emoji] = [...current, myPubkey];
+        reactions[emoji] = current.filter((pk) => pk !== myPubkey);
+        if (reactions[emoji].length === 0) delete reactions[emoji];
         return { ...m, reactions };
       }));
-    } catch {}
+    }
   }, [signer, myPubkey]);
 
   const handleCopy = useCallback((text: string) => {
