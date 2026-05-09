@@ -624,48 +624,6 @@ function ChatApp() {
             </div>
           </div>
         )}
-                  </div>
-                  {editProfile !== null ? (
-                    <div className="space-y-2">
-                      <input type="text" value={editProfile.name || ""} onChange={(e) => setEditProfile({ ...editProfile, name: e.target.value })} placeholder="Name"
-                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-                      <input type="text" value={editProfile.display_name || ""} onChange={(e) => setEditProfile({ ...editProfile, display_name: e.target.value })} placeholder="Display name"
-                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-                      <input type="text" value={editProfile.picture || ""} onChange={(e) => setEditProfile({ ...editProfile, picture: e.target.value })} placeholder="Picture URL"
-                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-                      <input type="text" value={editProfile.about || ""} onChange={(e) => setEditProfile({ ...editProfile, about: e.target.value })} placeholder="About"
-                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-                      <input type="text" value={editProfile.nip05 || ""} onChange={(e) => setEditProfile({ ...editProfile, nip05: e.target.value })} placeholder="NIP-05 (user@domain.com)"
-                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-                      <input type="text" value={editProfile.website || ""} onChange={(e) => setEditProfile({ ...editProfile, website: e.target.value })} placeholder="Website"
-                        className="w-full px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-                      <div className="flex gap-2">
-                        <button onClick={async () => {
-                          if (!signer || !relayRef.current) return;
-                          try {
-                            const event = await signProfileUpdate(signer, editProfile);
-                            await relayRef.current.publish(event);
-                            setProfiles((prev) => ({ ...prev, [myPubkey]: editProfile }));
-                            setEditProfile(null);
-                          } catch (e: any) { setError("Profile update failed: " + e.message); }
-                        }} className="flex-1 py-2 rounded-lg text-xs font-semibold text-black" style={{ backgroundColor: "var(--accent)" }}>Save</button>
-                        <button onClick={() => setEditProfile(null)} className="px-4 py-2 rounded-lg text-xs" style={{ border: "1px solid var(--border)", color: "var(--muted)" }}>Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="px-3 py-2 rounded-lg text-xs space-y-0.5" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>
-                      {profiles[myPubkey]?.name && <p><span style={{ color: "var(--muted)" }}>Name:</span> {profiles[myPubkey].name}</p>}
-                      {profiles[myPubkey]?.display_name && <p><span style={{ color: "var(--muted)" }}>Display:</span> {profiles[myPubkey].display_name}</p>}
-                      {profiles[myPubkey]?.about && <p><span style={{ color: "var(--muted)" }}>About:</span> {profiles[myPubkey].about}</p>}
-                      {!profiles[myPubkey]?.name && !profiles[myPubkey]?.about && <p style={{ color: "var(--muted)" }}>No profile set yet</p>}
-                    </div>
-                  )}
-                </div>
-                <button onClick={() => { setShowSettings(false); handleSignOut(); }} className="w-full py-2.5 rounded-lg text-xs font-medium text-red-400" style={{ border: "1px solid rgba(239,68,68,0.3)" }}>Sign out</button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
