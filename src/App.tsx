@@ -18,12 +18,13 @@ import {
   signChannelMessage,
   signProfileUpdate,
   signDeleteEvent,
-  connectRelayAsync,
+  connectRelayWithReconnect,
   subscribeChannel,
   publishWithAck,
   type NostrSigner,
   type Relay,
   type ConnectionState,
+  type ReconnectHandle,
 } from "./lib/nostr";
 import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
 import type { Message, Profile } from "./lib/types";
@@ -61,15 +62,21 @@ function ChatApp() {
   const [sending, setSending] = useState(false);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [connState, setConnState] = useState<ConnectionState>("disconnected");
+  const [messagesLoading, setMessagesLoading] = useState(true);
 
   const relayRef = useRef<Relay | null>(null);
   const bindingsRef = useRef<BindingCache | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const reconnectFnRef = useRef<(() => void) | null>(null);
+  const reconnectHandleRef = useRef<ReconnectHandle | null>(null);
+  const [reconnectTrigger, setReconnectTrigger] = useState(0);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editProfile, setEditProfile] = useState<import("./lib/nostr").NostrProfile | null>(null);
+  const lastSendRef = useRef(0);
+  const SEND_COOLDOWN = 1500; // ms between sends
 
   // Toast
   const [toastMsg, setToastMsg] = useState("");
@@ -138,7 +145,7 @@ function ChatApp() {
     })();
   }, [screen, accountId]);
 
-  // ── Chat: connect relay, load bindings, subscribe ──
+  // ── Chat: connect relay (with auto-reconnect), load bindings, subscribe ──
   useEffect(() => {
     if (screen !== "chat" || !accountId) return;
     let unsub: (() => void) | undefined;
@@ -151,75 +158,96 @@ function ChatApp() {
         bindingsRef.current = cache;
         fetchAllBindingsRefresh().then((fresh) => { if (!closed) bindingsRef.current = fresh; });
 
-        const relay = await connectRelayAsync(relayUrl, setConnState);
-        if (closed) { try { relay.close(); } catch {} return; }
-        relayRef.current = relay;
+        // Set up reconnect-aware relay connection
+        const handle = connectRelayWithReconnect(
+          relayUrl,
+          setConnState,
+          reconnectTrigger,
+          (relay) => {
+            // Called each time a connection succeeds (including reconnections)
+            if (closed) { try { relay.close(); } catch {} return; }
+            relayRef.current = relay;
 
-        // Fetch profiles
-        const pubkeys = Object.keys(cache.pubkeyIndex);
-        if (pubkeys.length > 0) {
-          const profileSub = relay.subscribe([{ kinds: [0], authors: pubkeys, limit: pubkeys.length }], {
-            onevent: (evt: any) => {
-              try {
-                const p = JSON.parse(evt.content);
-                setProfiles((prev) => ({ ...prev, [evt.pubkey]: p }));
-              } catch {}
-            },
-            oneose: () => {},
-          });
-          setTimeout(() => { try { profileSub.close(); } catch {} }, 5000);
-        }
+            // Clean up previous subscription
+            unsub?.();
 
-        // Subscribe to channel
-        unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
-          const sender = bindingsRef.current?.pubkeyIndex[event.pubkey] || event.pubkey.slice(0, 12) + "...";
-          // Extract reply tag info
-          const eTags = (event.tags || []).filter((t: string[]) => t[0] === "e");
-          const replyTag = eTags.find((t: string[]) => t[3] === "reply");
-          const rootTag = eTags.find((t: string[]) => t[3] === "root");
-          let replyToId: string | undefined;
-          let replyToContent: string | undefined;
-          let replyToSender: string | undefined;
-          if (replyTag) {
-            replyToId = replyTag[1];
-          }
-          const msg: Message = {
-            id: event.id, pubkey: event.pubkey, content: event.content,
-            created_at: event.created_at, sender,
-            ...(replyToId ? { replyToId } : {}),
-          };
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
-            // Enrich reply info from existing messages
-            if (replyToId) {
-              const refMsg = prev.find((m) => m.id === replyToId);
-              if (refMsg) {
-                msg.replyToContent = refMsg.content;
-                msg.replyToSender = refMsg.sender || refMsg.pubkey.slice(0, 8);
-              }
+            // Fetch profiles
+            const pubkeys = Object.keys(bindingsRef.current?.pubkeyIndex || {});
+            if (pubkeys.length > 0) {
+              const profileSub = relay.subscribe([{ kinds: [0], authors: pubkeys, limit: pubkeys.length }], {
+                onevent: (evt: any) => {
+                  try {
+                    const p = JSON.parse(evt.content);
+                    setProfiles((prev) => ({ ...prev, [evt.pubkey]: p }));
+                  } catch {}
+                },
+                oneose: () => {},
+              });
+              setTimeout(() => { try { profileSub.close(); } catch {} }, 5000);
             }
-            return [...prev, msg].sort((a, b) => a.created_at - b.created_at);
-          });
-          // Backfill reply content if referenced message wasn't loaded yet
-          if (replyToId && !msg.replyToContent && relay) {
-            (async () => {
-              try {
-                const filter = { ids: [replyToId] };
-                const fetched: any = await new Promise((resolve, reject) => {
-                  const timeout = setTimeout(() => { sub2.close(); reject(new Error("timeout")); }, 4000);
-                  const sub2 = relay.subscribe([filter], {
-                    onevent: (ev: any) => { clearTimeout(timeout); sub2.close(); resolve(ev); },
-                    oneose: () => { clearTimeout(timeout); sub2.close(); reject(new Error("not found")); },
-                  });
-                });
-                const refSender = bindingsRef.current?.pubkeyIndex[fetched.pubkey] || fetched.pubkey.slice(0, 12) + "...";
-                setMessages((prev) =>
-                  prev.map((m) => m.id === msg.id ? { ...m, replyToContent: fetched.content, replyToSender: refSender } : m)
-                );
-              } catch {} // best-effort; reply preview stays minimal if fetch fails
-            })();
-          }
-        });
+
+            // Subscribe to channel
+            setMessagesLoading(true);
+            unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
+              const sender = bindingsRef.current?.pubkeyIndex[event.pubkey] || event.pubkey.slice(0, 12) + "...";
+              // Extract reply tag info
+              const eTags = (event.tags || []).filter((t: string[]) => t[0] === "e");
+              const replyTag = eTags.find((t: string[]) => t[3] === "reply");
+              let replyToId: string | undefined;
+              let replyToContent: string | undefined;
+              let replyToSender: string | undefined;
+              if (replyTag) {
+                replyToId = replyTag[1];
+              }
+              const msg: Message = {
+                id: event.id, pubkey: event.pubkey, content: event.content,
+                created_at: event.created_at, sender,
+                ...(replyToId ? { replyToId } : {}),
+              };
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === msg.id)) return prev;
+                // Enrich reply info from existing messages
+                if (replyToId) {
+                  const refMsg = prev.find((m) => m.id === replyToId);
+                  if (refMsg) {
+                    msg.replyToContent = refMsg.content;
+                    msg.replyToSender = refMsg.sender || refMsg.pubkey.slice(0, 8);
+                  }
+                }
+                // Insertion-point instead of full sort
+                const list = [...prev, msg];
+                let i = list.length - 1;
+                while (i > 0 && list[i].created_at < list[i - 1].created_at) {
+                  [list[i], list[i - 1]] = [list[i - 1], list[i]];
+                  i--;
+                }
+                return list;
+              });
+              // Backfill reply content if referenced message wasn't loaded yet
+              if (replyToId && !msg.replyToContent && relay) {
+                (async () => {
+                  try {
+                    const filter = { ids: [replyToId] };
+                    const fetched: any = await new Promise((resolve, reject) => {
+                      const timeout = setTimeout(() => { sub2.close(); reject(new Error("timeout")); }, 4000);
+                      const sub2 = relay.subscribe([filter], {
+                        onevent: (ev: any) => { clearTimeout(timeout); sub2.close(); resolve(ev); },
+                        oneose: () => { clearTimeout(timeout); sub2.close(); reject(new Error("not found")); },
+                      });
+                    });
+                    const refSender = bindingsRef.current?.pubkeyIndex[fetched.pubkey] || fetched.pubkey.slice(0, 12) + "...";
+                    setMessages((prev) =>
+                      prev.map((m) => m.id === msg.id ? { ...m, replyToContent: fetched.content, replyToSender: refSender } : m)
+                    );
+                  } catch {} // best-effort; reply preview stays minimal if fetch fails
+                })();
+              }
+            }, () => { setMessagesLoading(false); });
+          },
+        );
+
+        reconnectHandleRef.current = handle;
+        reconnectFnRef.current = () => handle.reconnect();
       } catch (e: any) {
         if (!closed) setError("Failed to connect: " + (e.message || e));
       }
@@ -229,10 +257,15 @@ function ChatApp() {
     return () => {
       closed = true;
       unsub?.();
+      // Cleanup the reconnect handle
+      const cleanup = (reconnectHandleRef.current as any)?._cleanup;
+      if (cleanup) cleanup();
+      reconnectHandleRef.current = null;
+      reconnectFnRef.current = null;
       try { relayRef.current?.close(); } catch {}
       relayRef.current = null;
     };
-  }, [screen, accountId, relayUrl, signer, myPubkey]);
+  }, [screen, accountId, relayUrl, signer, myPubkey, reconnectTrigger]);
 
   useEffect(() => {
     if (autoScroll && messagesEndRef.current) {
@@ -298,6 +331,12 @@ function ChatApp() {
 
   const handleSend = async () => {
     if (!input.trim() || !signer) return;
+    const now = Date.now();
+    if (now - lastSendRef.current < SEND_COOLDOWN) {
+      setError("Slow down — wait a moment before sending again.");
+      return;
+    }
+    lastSendRef.current = now;
     const relay = relayRef.current;
     if (!relay || connState !== "connected") {
       setError("Not connected to relay.");
@@ -313,7 +352,15 @@ function ChatApp() {
       created_at: Math.floor(Date.now() / 1000), sender: accountId!, pending: true,
       ...(currentReplyTo ? { replyToId: currentReplyTo.id, replyToContent: currentReplyTo.content, replyToSender: currentReplyTo.sender } : {}),
     };
-    setMessages((prev) => [...prev, optimistic].sort((a, b) => a.created_at - b.created_at));
+    setMessages((prev) => {
+      const list = [...prev, optimistic];
+      let i = list.length - 1;
+      while (i > 0 && list[i].created_at < list[i - 1].created_at) {
+        [list[i], list[i - 1]] = [list[i - 1], list[i]];
+        i--;
+      }
+      return list;
+    });
     try {
       const event = await signChannelMessage(signer, content, CHANNEL_ID, currentReplyTo);
       const result = await publishWithAck(relay, event);
@@ -392,8 +439,17 @@ function ChatApp() {
         {screen === "chat" && (
           <div className="flex flex-col w-full h-full max-w-3xl mx-auto" style={{ backgroundColor: "var(--bg)" }}>
             {connState !== "connected" && (
-              <div className="px-4 py-2 text-xs text-center" style={{ backgroundColor: connState === "connecting" ? "rgba(251,191,36,0.1)" : "rgba(239,68,68,0.1)", color: connState === "connecting" ? "#fbbf24" : "#ef4444" }}>
-                {connState === "connecting" ? "Connecting to relay..." : "Disconnected from relay."}
+              <div className="px-4 py-2 text-xs text-center flex items-center justify-center gap-3" style={{ backgroundColor: connState === "connecting" ? "rgba(251,191,36,0.1)" : "rgba(239,68,68,0.1)", color: connState === "connecting" ? "#fbbf24" : "#ef4444" }}>
+                <span>{connState === "connecting" ? "Connecting to relay..." : "Disconnected from relay."}</span>
+                {connState !== "connecting" && (
+                  <button
+                    onClick={() => reconnectFnRef.current?.()}
+                    className="px-2 py-0.5 rounded text-xs font-medium border"
+                    style={{ borderColor: "currentColor", color: "inherit" }}
+                  >
+                    Reconnect
+                  </button>
+                )}
               </div>
             )}
             <MessageList
@@ -409,6 +465,7 @@ function ChatApp() {
               scrollToBottom={scrollToBottom}
               onReply={(msg) => setReplyTo({ id: msg.id, content: msg.content, sender: msg.sender || msg.pubkey.slice(0, 8) })}
               onDelete={handleDeleteMessage}
+              loading={messagesLoading}
             />
             {error && <div className="px-4 py-1.5 text-xs text-red-400 text-center">{error}</div>}
             <MessageInput

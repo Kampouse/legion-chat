@@ -1,4 +1,4 @@
-import type { ConnectionState } from "../lib/types";
+import type { ConnectionState } from "../lib/nostr";
 
 interface MessageInputProps {
   input: string;
@@ -38,6 +38,7 @@ export default function MessageInput({
           onKeyDown={handleKeyDown}
           placeholder={connState === "connected" ? "Say something..." : "Waiting for connection..."}
           rows={1}
+          aria-label="Message input"
           className="flex-1 px-3 py-2.5 rounded-2xl text-sm resize-none leading-relaxed"
           style={{
             backgroundColor: "var(--surface)",
@@ -55,6 +56,7 @@ export default function MessageInput({
         <button
           onClick={handleSend}
           disabled={!input.trim() || sending || connState !== "connected"}
+          aria-label="Send message"
           className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center font-bold text-black disabled:opacity-40 transition-opacity"
           style={{ backgroundColor: "var(--accent)" }}
         >

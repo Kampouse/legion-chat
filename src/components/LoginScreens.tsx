@@ -88,9 +88,12 @@ export function BindScreen({ hasExtension, nsec, bunkerUri, relayUrl, error, onN
         {mode === "local" && (
           <>
             <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>nsec (private key — stays in browser)</label>
+              <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>nsec (private key — stored in browser localStorage)</label>
               <input type="password" value={nsec} onChange={(e) => onNsecChange(e.target.value)} placeholder="nsec1..."
                 className="w-full px-3 py-2 rounded-lg text-sm font-mono" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
+              {nsec && (
+                <p className="text-[10px] mt-1 text-amber-400">⚠ Your private key will be stored in localStorage. Anyone with access to this browser can read it. Use a bunker or extension for better security.</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Relay</label>

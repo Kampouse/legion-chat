@@ -147,6 +147,122 @@ export async function connectRelayAsync(
   }
 }
 
+export interface ReconnectHandle {
+  /** Trigger a fresh reconnection attempt right now (resets backoff). */
+  reconnect: () => void;
+}
+
+/**
+ * Connect to a relay with automatic reconnection using exponential backoff.
+ *
+ * @param url               Relay websocket URL
+ * @param onStateChange     Callback that receives the current ConnectionState
+ * @param reconnectTrigger  A number that the parent increments to force a reconnect
+ *                          (e.g. from a counter state). When it changes, a fresh
+ *                          connection attempt is started.
+ * @param onConnect         Optional callback invoked with the Relay instance each
+ *                          time a connection succeeds.
+ * @returns                 A handle whose `.reconnect()` can be called manually.
+ */
+export function connectRelayWithReconnect(
+  url: string,
+  onStateChange: (state: ConnectionState) => void,
+  reconnectTrigger: number,
+  onConnect?: (relay: Relay) => void,
+): ReconnectHandle {
+  const MAX_BACKOFF = 30_000; // 30 s
+  const BASE_DELAY = 1_000;  // 1 s
+
+  let attempt = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let alive = true;
+  let currentRelay: Relay | null = null;
+
+  // Cancel any pending reconnect timer and close existing relay
+  function cleanup() {
+    alive = false;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (currentRelay) {
+      try { currentRelay.close(); } catch { /* best-effort */ }
+      currentRelay = null;
+    }
+  }
+
+  function connect() {
+    if (!alive) return;
+
+    onStateChange("connecting");
+
+    Relay.connect(url)
+      .then((relay) => {
+        if (!alive) {
+          try { relay.close(); } catch {}
+          return;
+        }
+        relay.verifyEvent = () => true;
+        currentRelay = relay;
+        attempt = 0; // reset backoff on successful connect
+        onStateChange("connected");
+        onConnect?.(relay);
+
+        // When the relay closes, schedule an automatic reconnection
+        relay.onclose = () => {
+          if (!alive) return;
+          currentRelay = null;
+          onStateChange("disconnected");
+          scheduleReconnect();
+        };
+      })
+      .catch(() => {
+        if (!alive) return;
+        currentRelay = null;
+        onStateChange("error");
+        scheduleReconnect();
+      });
+  }
+
+  function scheduleReconnect() {
+    if (!alive) return;
+    const delay = Math.min(BASE_DELAY * Math.pow(2, attempt), MAX_BACKOFF);
+    attempt++;
+    timer = setTimeout(() => {
+      timer = null;
+      connect();
+    }, delay);
+  }
+
+  // Public handle – allows manual reconnect
+  const handle: ReconnectHandle = {
+    reconnect() {
+      // Cancel pending timer
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      // Close existing relay
+      if (currentRelay) {
+        try { currentRelay.close(); } catch {}
+        currentRelay = null;
+      }
+      // Reset backoff and try again
+      attempt = 0;
+      connect();
+    },
+  };
+
+  // Kick off the initial connection
+  connect();
+
+  // The caller should call cleanup when the component unmounts.
+  // We stash it on the handle so the caller can access it.
+  (handle as any)._cleanup = cleanup;
+
+  return handle;
+}
+
 // ── Publish ──
 
 export interface PublishResult {
@@ -173,13 +289,14 @@ export function subscribeChannel(
   relay: Relay,
   channelId: string,
   onMessage: (msg: any) => void,
+  onDone?: () => void,
 ): () => void {
   const filter = { kinds: [42], "#e": [channelId], limit: 500 };
   const sub = relay.subscribe([filter], {
     onevent: (event: any) => {
       onMessage(event);
     },
-    oneose: () => {},
+    oneose: () => { onDone?.(); },
   });
   return () => {
     try { sub.close(); } catch {}

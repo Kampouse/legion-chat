@@ -18,11 +18,3 @@ export interface Profile {
   about?: string;
   nip05?: string;
 }
-
-export type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
-
-export interface PublishResult {
-  ok: boolean;
-  eventId: string;
-  message: string;
-}

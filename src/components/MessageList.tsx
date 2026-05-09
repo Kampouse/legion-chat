@@ -68,6 +68,7 @@ interface MessageListProps {
   scrollToBottom: () => void;
   onReply: (msg: Message) => void;
   onDelete: (msgId: string) => void;
+  loading?: boolean;
 }
 
 export default function MessageList({
@@ -83,15 +84,94 @@ export default function MessageList({
   scrollToBottom,
   onReply,
   onDelete,
+  loading = false,
 }: MessageListProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const clearSelection = () => setSelectedId(null);
+
+  /** Action button bar shared between desktop hover and mobile tap-to-select */
+  const actionButtons = (msg: Message, isMine: boolean, variant: "inline" | "floating") => {
+    const baseBtn = "w-7 h-7 rounded flex items-center justify-center text-xs";
+    const btnStyle = (color: string) => ({
+      backgroundColor: "var(--surface)",
+      border: "1px solid var(--border)",
+      color,
+    });
+    if (variant === "floating") {
+      return (
+        <div
+          className="flex items-center gap-1 px-2 py-1 rounded-full shadow-lg"
+          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); onReply(msg); clearSelection(); }}
+            className={baseBtn}
+            style={btnStyle("var(--muted)")}
+            title="Reply"
+          >
+            ↩
+          </button>
+          {isMine && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(msg.id); clearSelection(); }}
+              className={baseBtn}
+              style={btnStyle("#ef4444")}
+              title="Delete"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className={`flex items-center gap-0.5 ${isMine ? "order-first" : "order-last"}`}>
+        <button
+          onClick={() => onReply(msg)}
+          className="w-6 h-6 rounded flex items-center justify-center text-[11px]"
+          style={btnStyle("var(--muted)")}
+          title="Reply"
+        >
+          ↩
+        </button>
+        {isMine && (
+          <button
+            onClick={() => setConfirmDeleteId(msg.id)}
+            className="w-6 h-6 rounded flex items-center justify-center text-[11px]"
+            style={btnStyle("#ef4444")}
+            title="Delete"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-1">
+      {/* Backdrop to dismiss selection on tap-away (mobile) */}
+      {selectedId && (
+        <div
+          className="fixed inset-0 z-20"
+          onTouchEnd={(e) => { e.preventDefault(); clearSelection(); }}
+          onClick={clearSelection}
+        />
+      )}
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 space-y-1 relative z-10">
         {messages.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-sm" style={{ color: "var(--muted)" }}>No messages yet. Be the first to speak.</p>
+            {loading ? (
+              <>
+                <div className="animate-pulse text-2xl mb-3">💬</div>
+                <p className="text-sm" style={{ color: "var(--muted)" }}>Loading messages...</p>
+              </>
+            ) : (
+              <p className="text-sm" style={{ color: "var(--muted)" }}>No messages yet. Be the first to speak.</p>
+            )}
           </div>
         )}
         {messages.map((msg, i) => {
@@ -111,6 +191,8 @@ export default function MessageList({
 
           const showDateSep = !prev || isDifferentDay(prev.created_at, msg.created_at);
           const isHovered = hoveredId === msg.id;
+          const isSelected = selectedId === msg.id;
+          const showActions = (isHovered || isSelected) && !msg.pending;
 
           return (
             <Fragment key={msg.id}>
@@ -127,6 +209,11 @@ export default function MessageList({
                 className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} group relative`}
                 onMouseEnter={() => setHoveredId(msg.id)}
                 onMouseLeave={() => setHoveredId(null)}
+                onTouchEnd={(e) => {
+                  if (confirmDeleteId) return; // don't interfere with delete dialog
+                  e.preventDefault();
+                  setSelectedId((prev) => (prev === msg.id ? null : msg.id));
+                }}
               >
                 <div className="w-8 shrink-0 flex items-center justify-center">
                   {showAvatar && !sameSender && (
@@ -144,29 +231,8 @@ export default function MessageList({
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
                   <div className="flex items-end gap-1.5">
-                    {/* Hover action buttons */}
-                    {isHovered && !msg.pending && (
-                      <div className={`flex items-center gap-0.5 ${mine ? "order-first" : "order-last"}`}>
-                        <button
-                          onClick={() => onReply(msg)}
-                          className="w-6 h-6 rounded flex items-center justify-center text-[11px]"
-                          style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
-                          title="Reply"
-                        >
-                          ↩
-                        </button>
-                        {mine && (
-                          <button
-                            onClick={() => onDelete(msg.id)}
-                            className="w-6 h-6 rounded flex items-center justify-center text-[11px]"
-                            style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "#ef4444" }}
-                            title="Delete"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    {/* Desktop inline action buttons (hover or tap-selected) */}
+                    {showActions && actionButtons(msg, mine, "inline")}
                     <div
                       className="px-3 py-2 text-sm break-words leading-relaxed relative"
                       style={{
@@ -174,6 +240,8 @@ export default function MessageList({
                         border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
                         borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                         opacity: msg.pending ? 0.6 : 1,
+                        outline: isSelected ? "2px solid var(--accent)" : undefined,
+                        outlineOffset: 1,
                       }}
                     >
                       {/* Reply preview */}
@@ -204,6 +272,12 @@ export default function MessageList({
                       )}
                     </div>
                   </div>
+                  {/* Mobile floating action bar — appears below bubble on tap-select */}
+                  {isSelected && !msg.pending && (
+                    <div className="mt-1 md:hidden" style={{ pointerEvents: "auto" }}>
+                      {actionButtons(msg, mine, "floating")}
+                    </div>
+                  )}
                   {!sameSender && (
                     <span className="text-[9px] mt-0.5 px-1" style={{ color: "var(--muted)" }}>
                       {timeOnly(msg.created_at)}
@@ -212,6 +286,58 @@ export default function MessageList({
                   )}
                 </div>
               </div>
+              {confirmDeleteId === msg.id && (
+                <div
+                  className="absolute z-50"
+                  style={{
+                    top: "100%",
+                    right: 0,
+                    marginTop: 4,
+                  }}
+                >
+                  <div
+                    className="rounded-lg shadow-xl p-3 min-w-[260px]"
+                    style={{
+                      backgroundColor: "var(--bg)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                      Delete this message?
+                    </p>
+                    <p className="text-xs mt-1 leading-relaxed" style={{ color: "var(--muted)" }}>
+                      This asks the relay to remove it. Other relays may still have a copy.
+                    </p>
+                    <div className="flex justify-end gap-2 mt-3">
+                      <button
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="px-3 py-1 text-xs rounded"
+                        style={{
+                          backgroundColor: "var(--surface)",
+                          border: "1px solid var(--border)",
+                          color: "var(--text)",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          onDelete(msg.id);
+                          setConfirmDeleteId(null);
+                        }}
+                        className="px-3 py-1 text-xs rounded font-semibold"
+                        style={{
+                          backgroundColor: "#dc2626",
+                          border: "1px solid #dc2626",
+                          color: "#fff",
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </Fragment>
           );
         })}
