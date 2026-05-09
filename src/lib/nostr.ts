@@ -73,12 +73,33 @@ export async function signChallenge(signer: NostrSigner, challenge: string): Pro
 
 // ── NIP-28 Channel ──
 
-export async function signChannelMessage(signer: NostrSigner, content: string, channelId: string): Promise<any> {
+export async function signChannelMessage(
+  signer: NostrSigner,
+  content: string,
+  channelId: string,
+  replyTo?: { id: string } | null,
+): Promise<any> {
+  const tags: string[][] = [["e", channelId, relayHint(DEFAULT_RELAY), "root"]];
+  if (replyTo) {
+    tags.push(["e", replyTo.id, "relay.damus.io", "reply"]);
+  }
   return signer.signEvent({
     kind: 42,
     created_at: Math.floor(Date.now() / 1000),
-    tags: [["e", channelId, relayHint(DEFAULT_RELAY), "root"]],
+    tags,
     content,
+  });
+}
+
+export async function signDeleteEvent(
+  signer: NostrSigner,
+  eventId: string,
+): Promise<any> {
+  return signer.signEvent({
+    kind: 5,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [["e", eventId]],
+    content: "deleted by author",
   });
 }
 
