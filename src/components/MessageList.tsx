@@ -132,7 +132,6 @@ export default function MessageList({
   searchQuery = "",
   typingUsers = [],
 }: MessageListProps) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // ── Message animation: track which IDs are "new" ──
@@ -223,7 +222,6 @@ export default function MessageList({
           const isLastInGroup = sameSender && !nextSameSender;
 
           const showDateSep = !prev || isDifferentDay(prev.created_at, msg.created_at);
-          const isHovered = hoveredId === msg.id;
           const offset = swipeOffset[msg.id] || 0;
           const absOffset = Math.abs(offset);
           const hinting = absOffset > SWIPE_THRESHOLD * 0.3;
@@ -242,8 +240,6 @@ export default function MessageList({
               )}
               <div
                 className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} group relative ${isNew ? "msg-slide-in" : ""}`}
-                onMouseEnter={() => setHoveredId(msg.id)}
-                onMouseLeave={() => setHoveredId(null)}
                 onTouchStart={(e) => {
                   if (confirmDeleteId) return;
                   if (msg.pending) return;
@@ -299,16 +295,14 @@ export default function MessageList({
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
                   <div className="flex items-end gap-1.5">
-                    {isHovered && !msg.pending && (
-                      <button
-                        onClick={() => onReply(msg)}
-                        className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex"
-                        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
-                        title="Reply"
-                      >
-                        <Reply size={12} />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => onReply(msg)}
+                      className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                      style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
+                      title="Reply"
+                    >
+                      <Reply size={12} />
+                    </button>
                     <div
                       className="px-3 py-2 text-sm break-words leading-relaxed relative select-none"
                       style={{
@@ -365,10 +359,10 @@ export default function MessageList({
                         </div>
                       )}
                     </div>
-                    {isHovered && mine && !msg.pending && (
+                    {mine && (
                       <button
                         onClick={() => setConfirmDeleteId(msg.id)}
-                        className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex"
+                        className="w-6 h-6 rounded flex items-center justify-center text-[11px] hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity duration-150"
                         style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "#ef4444" }}
                         title="Delete"
                       >
