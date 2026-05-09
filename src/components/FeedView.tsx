@@ -298,103 +298,105 @@ function ComposeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col" style={{ backgroundColor: "var(--bg)", animation: "modalIn 0.2s ease" }}>
-      {/* Top bar */}
-      <div className="flex items-center gap-4 px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-        <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--text)" }}>
-          <X size={20} />
-        </button>
-        <span className="font-semibold text-[15px]" style={{ color: "var(--text)" }}>{isReply ? "Reply" : isQuote ? "Quote" : "Compose"}</span>
-        <button
-          onClick={handleSubmit}
-          disabled={(!text.trim() && !previewUrl) || sending || overLimit || uploading}
-          className="ml-auto px-5 py-1.5 rounded-full text-sm font-bold text-black disabled:opacity-40 transition-opacity"
-          style={{ backgroundColor: "var(--accent)" }}
-        >
-          {sending ? <Loader2 size={14} className="animate-spin inline" /> : isReply ? "Reply" : "Post"}
-        </button>
-      </div>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.6)" }} />
+      <div
+        className="relative flex flex-col w-full max-w-lg rounded-2xl overflow-hidden"
+        style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", maxHeight: "80vh", animation: "modalIn 0.2s ease" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--text)" }}>
+            <X size={20} />
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={(!text.trim() && !previewUrl) || sending || overLimit || uploading}
+            className="px-5 py-1.5 rounded-full text-sm font-bold text-black disabled:opacity-40 transition-opacity"
+            style={{ backgroundColor: "var(--accent)" }}
+          >
+            {sending ? <Loader2 size={14} className="animate-spin inline" /> : isReply ? "Reply" : "Post"}
+          </button>
+        </div>
 
-      {/* Content area */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Reply context — full post */}
-        {isReply && replyTo && (
-          <div className="px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-            <div className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <Avatar profile={replyProfile} name={replyName} size={40} />
-                <div className="flex-1 w-px mt-2" style={{ backgroundColor: "var(--border)" }} />
-              </div>
-              <div className="flex-1 min-w-0 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-[15px]" style={{ color: "var(--text)" }}>{replyName}</span>
-                  <span className="text-[13px]" style={{ color: "var(--muted)" }}>· {timeAgo(replyTo.created_at)}</span>
+        {/* Content area */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {/* Reply context — compact inline */}
+          {isReply && replyTo && (
+            <div className="px-4 pt-3">
+              <div className="flex gap-3">
+                <div className="flex flex-col items-center shrink-0">
+                  <Avatar profile={replyProfile} name={replyName} size={36} />
+                  <div className="flex-1 w-px mt-2 mb-1" style={{ backgroundColor: "var(--border)" }} />
                 </div>
-                <p className="text-[15px] mt-1 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>{replyTo.content}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Quote context */}
-        {isQuote && quotePost && !isReply && (
-          <div className="px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-            <span className="text-xs" style={{ color: "var(--muted)" }}>Quoting</span>
-            <QuotedPost post={quotePost} profiles={profiles} />
-          </div>
-        )}
-
-        {/* Your reply */}
-        <div className="px-4 py-3">
-          <div className="flex gap-3">
-            <Avatar profile={myProfile} name={myProfile.display_name || myProfile.name || "Me"} size={40} />
-            <div className="flex-1 relative">
-              <textarea
-                ref={taRef}
-                value={text}
-                onChange={handleTextChange}
-                onPaste={handlePaste}
-                placeholder={isReply ? "Post your reply" : isQuote ? "Add a comment" : "What's happening?"}
-                className="w-full bg-transparent text-[17px] resize-none leading-normal outline-none"
-                style={{ color: "var(--text)", minHeight: "120px" }}
-              />
-              {/* Mention picker */}
-              {mentionQuery !== null && (
-                <MentionPicker query={mentionQuery} profiles={profiles} myPubkey={myPubkey} onSelect={handleMentionSelect} />
-              )}
-            </div>
-          </div>
-
-          {/* Image preview */}
-          {(previewUrl || uploading) && (
-            <div className="mt-3 ml-[52px] relative rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", maxWidth: "300px" }}>
-              {previewUrl && <img src={previewUrl} alt="" className="w-full max-h-[200px] object-cover" />}
-              {uploading && (
-                <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }}>
-                  <Loader2 size={24} className="animate-spin text-white" />
+                <div className="flex-1 min-w-0 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm" style={{ color: "var(--text)" }}>{replyName}</span>
+                    <span className="text-xs" style={{ color: "var(--muted)" }}>{timeAgo(replyTo.created_at)}</span>
+                  </div>
+                  <p className="text-sm mt-0.5 line-clamp-4 leading-normal" style={{ color: "var(--muted)" }}>{replyTo.content}</p>
                 </div>
-              )}
-              {previewUrl && !uploading && (
-                <button onClick={() => setPreviewUrl(null)} className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", color: "white" }}>
-                  <X size={12} />
-                </button>
-              )}
+              </div>
             </div>
           )}
+
+          {/* Quote context */}
+          {isQuote && quotePost && !isReply && (
+            <div className="px-4 pt-3">
+              <QuotedPost post={quotePost} profiles={profiles} />
+            </div>
+          )}
+
+          {/* Compose */}
+          <div className="px-4 py-3">
+            <div className="flex gap-3">
+              <Avatar profile={myProfile} name={myProfile.display_name || myProfile.name || "Me"} size={36} />
+              <div className="flex-1 relative">
+                <textarea
+                  ref={taRef}
+                  value={text}
+                  onChange={handleTextChange}
+                  onPaste={handlePaste}
+                  placeholder={isReply ? "Post your reply" : isQuote ? "Add a comment" : "What's happening?"}
+                  className="w-full bg-transparent text-[15px] resize-none leading-normal outline-none"
+                  style={{ color: "var(--text)", minHeight: "100px" }}
+                />
+                {mentionQuery !== null && (
+                  <MentionPicker query={mentionQuery} profiles={profiles} myPubkey={myPubkey} onSelect={handleMentionSelect} />
+                )}
+              </div>
+            </div>
+
+            {/* Image preview */}
+            {(previewUrl || uploading) && (
+              <div className="mt-2 ml-12 relative rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", maxWidth: "280px" }}>
+                {previewUrl && <img src={previewUrl} alt="" className="w-full max-h-[180px] object-cover" />}
+                {uploading && (
+                  <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }}>
+                    <Loader2 size={24} className="animate-spin text-white" />
+                  </div>
+                )}
+                {previewUrl && !uploading && (
+                  <button onClick={() => setPreviewUrl(null)} className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", color: "white" }}>
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Hidden file input */}
-      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
-
-      {/* Bottom toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
-        <button onClick={() => fileRef.current?.click()} disabled={uploading} className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 disabled:opacity-40" style={{ color: "var(--accent)" }}>
-          <ImagePlus size={18} />
-        </button>
-        {charCount > 0 && (
-          <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>{charCount}/{charLimit}</span>
-        )}
+        {/* Bottom toolbar */}
+        <div className="flex items-center justify-between px-4 py-3 border-t shrink-0" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 disabled:opacity-40" style={{ color: "var(--accent)" }}>
+            <ImagePlus size={18} />
+          </button>
+          {charCount > 0 && (
+            <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>{charCount}/{charLimit}</span>
+          )}
+        </div>
       </div>
     </div>
   );
