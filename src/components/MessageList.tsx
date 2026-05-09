@@ -107,24 +107,37 @@ export default function MessageList({
     setSwipeOffset({});
   }, []);
 
-  // Search: filter + highlight
-  const q = searchQuery.toLowerCase().trim();
-  const filtered = q
-    ? messages.filter((m) => m.content.toLowerCase().includes(q) || (m.sender || "").toLowerCase().includes(q))
+  // Search: parse from:user + text filters
+  const q = searchQuery.trim();
+  const fromMatch = q.match(/\bfrom:(\S+)/i);
+  const fromFilter = fromMatch ? fromMatch[1].toLowerCase() : null;
+  const textFilter = q.replace(/\bfrom:\S+/i, "").trim().toLowerCase();
+
+  const filtered = (fromFilter || textFilter)
+    ? messages.filter((m) => {
+        if (fromFilter) {
+          const sender = (m.sender || m.pubkey.slice(0, 8)).toLowerCase();
+          if (!sender.includes(fromFilter)) return false;
+        }
+        if (textFilter) {
+          if (!m.content.toLowerCase().includes(textFilter)) return false;
+        }
+        return true;
+      })
     : messages;
 
   const highlight = useCallback((text: string): React.ReactNode => {
-    if (!q) return text;
-    const idx = text.toLowerCase().indexOf(q);
+    if (!textFilter) return text;
+    const idx = text.toLowerCase().indexOf(textFilter);
     if (idx === -1) return text;
     return (
       <>
         {text.slice(0, idx)}
-        <mark style={{ backgroundColor: "var(--accent)", color: "#000", borderRadius: "2px", padding: "0 1px" }}>{text.slice(idx, idx + q.length)}</mark>
-        {highlight(text.slice(idx + q.length))}
+        <mark style={{ backgroundColor: "var(--accent)", color: "#000", borderRadius: "2px", padding: "0 1px" }}>{text.slice(idx, idx + textFilter.length)}</mark>
+        {highlight(text.slice(idx + textFilter.length))}
       </>
     );
-  }, [q]);
+  }, [textFilter]);
 
   return (
     <>

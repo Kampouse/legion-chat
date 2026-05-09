@@ -471,14 +471,17 @@ function ChatApp() {
                   className="flex-1 px-3 py-2 rounded-lg text-sm"
                   style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)", outline: "none" }}
                 />
-                {searchQuery && (
-                  <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>
-                    {messages.filter((m) => {
-                      const q = searchQuery.toLowerCase();
-                      return m.content.toLowerCase().includes(q) || (m.sender || "").toLowerCase().includes(q);
-                    }).length} found
-                  </span>
-                )}
+                {searchQuery.trim() && (() => {
+                  const fm = searchQuery.trim().match(/\bfrom:(\S+)/i);
+                  const ff = fm ? fm[1].toLowerCase() : null;
+                  const tf = searchQuery.trim().replace(/\bfrom:\S+/i, "").trim().toLowerCase();
+                  const count = messages.filter((m) => {
+                    if (ff) { const s = (m.sender || m.pubkey.slice(0, 8)).toLowerCase(); if (!s.includes(ff)) return false; }
+                    if (tf) { if (!m.content.toLowerCase().includes(tf)) return false; }
+                    return true;
+                  }).length;
+                  return <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>{count} found</span>;
+                })()}
               </div>
             )}
             <MessageList
