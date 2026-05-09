@@ -68,10 +68,7 @@ function ChatApp() {
 
   const relayRef = useRef<Relay | null>(null);
   const bindingsRef = useRef<BindingCache | null>(null);
-  const messagesRef = useRef<Message[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Keep messagesRef in sync for subscription filters
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectFnRef = useRef<(() => void) | null>(null);
   const reconnectHandleRef = useRef<ReconnectHandle | null>(null);
@@ -197,6 +194,7 @@ function ChatApp() {
 
             // Subscribe to channel
             setMessagesLoading(true);
+            const collectedIds: string[] = []; // track IDs inline — messagesRef is stale at OOSE time
             unsub = subscribeChannel(relay, CHANNEL_ID, (event: any) => {
               const sender = bindingsRef.current?.pubkeyIndex[event.pubkey] || event.pubkey.slice(0, 12) + "...";
               // Extract reply tag info
@@ -213,6 +211,7 @@ function ChatApp() {
                 created_at: event.created_at, sender,
                 ...(replyToId ? { replyToId } : {}),
               };
+              collectedIds.push(event.id);
               setMessages((prev) => {
                 if (prev.some((m) => m.id === msg.id)) return prev;
                 // Enrich reply info from existing messages
@@ -254,11 +253,10 @@ function ChatApp() {
             }, () => {
               setMessagesLoading(false);
               // After messages are loaded, fetch historical + subscribe to reactions
-              const loadedIds = messagesRef.current.map((m) => m.id);
-              if (loadedIds.length > 0) {
+              if (collectedIds.length > 0) {
                 const reactionSub = relay.subscribe([{
                   kinds: [7],
-                  "#e": loadedIds,
+                  "#e": collectedIds,
                 }], {
                   onevent: (evt: any) => {
                     const eTag = (evt.tags || []).find((t: string[]) => t[0] === "e");
