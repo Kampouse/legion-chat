@@ -56,24 +56,60 @@ function parseContent(content: string) {
 }
 
 function ImagePreview({ url }: { url: string }) {
-  const [expanded, setExpanded] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
   const [error, setError] = useState(false);
   if (error) return <a href={url} target="_blank" rel="noopener noreferrer" className="underline break-all" style={{ color: "var(--accent)" }}>{url}</a>;
+
   return (
-    <div className="mt-1 max-w-[280px]">
-      <img
-        src={url}
-        alt=""
-        onClick={() => setExpanded(!expanded)}
-        onError={() => setError(true)}
-        className="rounded-lg cursor-pointer object-cover transition-all duration-200"
-        style={{
-          maxHeight: expanded ? "600px" : "160px",
-          width: "100%",
-          border: "1px solid var(--border)",
-        }}
-      />
-    </div>
+    <>
+      <div className="mt-1 max-w-[280px]">
+        <img
+          src={url}
+          alt=""
+          onClick={() => setLightbox(true)}
+          onError={() => setError(true)}
+          className="rounded-lg cursor-pointer object-cover"
+          style={{ maxHeight: "160px", width: "100%", border: "1px solid var(--border)" }}
+        />
+      </div>
+      {lightbox && (
+        <div
+          onClick={() => setLightbox(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.92)", display: "flex",
+            alignItems: "center", justifyContent: "center",
+            padding: "16px", cursor: "zoom-out",
+            animation: "lbFadeIn 0.15s ease",
+          }}
+        >
+          <img
+            src={url}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: "100%", maxHeight: "100%",
+              objectFit: "contain", borderRadius: "8px",
+              cursor: "default",
+            }}
+          />
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute", bottom: "20px", right: "20px",
+              background: "rgba(255,255,255,0.15)", padding: "8px 14px",
+              borderRadius: "8px", color: "#fff", fontSize: "13px",
+              textDecoration: "none", display: "flex", alignItems: "center", gap: "6px",
+            }}
+          >
+            Open ↗
+          </a>
+        </div>
+      )}
+    </>
   );
 }
 
