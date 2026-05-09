@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { Message, Profile } from "../lib/types";
 import { subscribeChannel, publishWithAck, signChannelMessage, signReaction } from "../lib/nostr";
 import { FEED_CHANNEL_ID } from "../lib/constants";
-import { Trash2, Copy, Heart, MessageCircle, Loader2, X, Image as ImageIcon, Plus } from "lucide-react";
+import { Trash2, Copy, Heart, MessageCircle, Loader2, X, Plus } from "lucide-react";
 import type { Relay, NostrSigner } from "../lib/nostr";
 import type { BindingCache } from "../lib/types";
 
@@ -160,19 +160,12 @@ function ComposeModal({
       </div>
 
       {/* Bottom toolbar */}
-      <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
-        <div className="flex items-center gap-2">
-          <button className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--accent)" }}>
-            <ImageIcon size={18} />
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
-          {charCount > 0 && (
-            <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>
-              {charCount}/{charLimit}
-            </span>
-          )}
-        </div>
+      <div className="flex items-center justify-end px-4 py-3 border-t" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+        {charCount > 0 && (
+          <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>
+            {charCount}/{charLimit}
+          </span>
+        )}
       </div>
     </div>
   );
