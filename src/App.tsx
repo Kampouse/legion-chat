@@ -382,13 +382,15 @@ function ChatApp() {
   };
 
   const handleDeleteMessage = useCallback(async (msgId: string) => {
+    // Client-side delete first — instant
+    setMessages((prev) => prev.filter((m) => m.id !== msgId));
+    // Best-effort NIP-09 deletion in background
     if (!signer || !relayRef.current) return;
     try {
       const event = await signDeleteEvent(signer, msgId);
       await relayRef.current.publish(event);
-      setMessages((prev) => prev.filter((m) => m.id !== msgId));
-    } catch (e: any) {
-      setError("Delete failed: " + e.message);
+    } catch {
+      // Already gone from UI — NIP-09 is best-effort
     }
   }, [signer]);
 

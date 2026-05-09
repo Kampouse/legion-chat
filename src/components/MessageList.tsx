@@ -321,7 +321,7 @@ export default function MessageList({
                       Delete this message?
                     </p>
                     <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "var(--muted)" }}>
-                      This asks the relay to remove it. Other relays may still have a copy.
+                      Removes from your view instantly. Relay deletion is sent in the background.
                     </p>
                     <div className="flex justify-end gap-2 mt-4">
                       <button
