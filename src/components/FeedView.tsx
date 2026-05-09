@@ -120,13 +120,17 @@ function MentionPicker({
 }
 
 // ── Quoted Post Card (mini, embedded) ──
-function QuotedPost({ post, profiles }: { post: Message; profiles: Record<string, Profile> }) {
+function QuotedPost({ post, profiles, onClick }: { post: Message; profiles: Record<string, Profile>; onClick?: () => void }) {
   const profile = profiles[post.pubkey];
   const name = post.sender || profile?.display_name || profile?.name || post.pubkey.slice(0, 12) + "...";
-  const { text } = parseImage(post.content);
+  const { text, imageUrl } = parseImage(post.content);
 
   return (
-    <div className="mt-2 rounded-xl p-3" style={{ border: "1px solid var(--border)", backgroundColor: "rgba(255,255,255,0.03)" }}>
+    <div
+      onClick={onClick}
+      className="mt-2 rounded-xl p-3 active:opacity-70 transition-opacity"
+      style={{ border: "1px solid var(--border)", backgroundColor: "rgba(255,255,255,0.03)", cursor: onClick ? "pointer" : undefined }}
+    >
       <div className="flex items-center gap-2 mb-1">
         <Avatar profile={profile} name={name} size={16} />
         <span className="font-semibold text-[13px] truncate" style={{ color: "var(--text)" }}>{name}</span>
@@ -135,6 +139,11 @@ function QuotedPost({ post, profiles }: { post: Message; profiles: Record<string
         <p className="text-[13px] line-clamp-3 leading-normal" style={{ color: "var(--muted)" }}>
           {text.length > 200 ? text.slice(0, 200) + "..." : text}
         </p>
+      )}
+      {imageUrl && (
+        <div className="mt-2 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <img src={imageUrl} alt="" className="w-full max-h-[200px] object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+        </div>
       )}
     </div>
   );
@@ -392,7 +401,7 @@ function ComposeModal({
 
 // ── Post Card ──
 function PostCard({
-  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, replies,
+  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, onNavigateToPost, replies,
 }: {
   msg: Message;
   myPubkey: string;
@@ -401,6 +410,7 @@ function PostCard({
   onReact: (msgId: string, pubkey: string, emoji: string) => void;
   onReply: (msg: Message) => void;
   onQuote: (msg: Message) => void;
+  onNavigateToPost: (id: string) => void;
   replies: Message[];
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -416,7 +426,7 @@ function PostCard({
   const quotedPost = msg.quoteId ? allPosts.find((p) => p.id === msg.quoteId) : null;
 
   return (
-    <article className="border-b" style={{ borderColor: "var(--border)" }}>
+    <article data-post-id={msg.id} className="border-b" style={{ borderColor: "var(--border)" }}>
       <div className="px-4 py-3">
         <div className="flex gap-3">
           <Avatar profile={profile} name={displayName} />
@@ -439,7 +449,7 @@ function PostCard({
             )}
 
             {/* Quoted post */}
-            {quotedPost && <QuotedPost post={quotedPost} profiles={profiles} />}
+            {quotedPost && <QuotedPost post={quotedPost} profiles={profiles} onClick={() => onNavigateToPost(quotedPost.id)} />}
 
             {/* Action bar */}
             <div className="flex items-center gap-6 mt-3">
@@ -510,6 +520,7 @@ export default function FeedView({
   // null = closed, "new" = new post, Message = reply, { quote: Message } = quote
   const [composeTarget, setComposeTarget] = useState<{ type: "new" | "reply" | "quote"; post: Message | null } | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
+  const feedScrollRef = useRef<HTMLDivElement>(null);
 
   // Subscribe to feed channel
   useEffect(() => {
@@ -601,11 +612,22 @@ export default function FeedView({
     }
   }, [signer, myPubkey, relay]);
 
+  const navigateToPost = useCallback((id: string) => {
+    const el = feedScrollRef.current?.querySelector(`[data-post-id="${id}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Brief highlight flash
+      el.style.transition = "background 0.3s";
+      el.style.background = "rgba(0,236,151,0.12)";
+      setTimeout(() => { el.style.background = ""; }, 1200);
+    }
+  }, []);
+
   const myProfile = profiles[myPubkey] || {};
 
   return (
     <div className="flex flex-col w-full h-full relative">
-      <div className="flex-1 overflow-y-auto">
+      <div ref={feedScrollRef} className="flex-1 overflow-y-auto">
         {loading && topLevelPosts.length === 0 && (
           <div className="flex items-center justify-center py-20">
             <Loader2 size={24} className="animate-spin" style={{ color: "var(--muted)" }} />
@@ -627,6 +649,7 @@ export default function FeedView({
             onReact={handleReact}
             onReply={(m) => setComposeTarget({ type: "reply", post: m })}
             onQuote={(m) => setComposeTarget({ type: "quote", post: m })}
+            onNavigateToPost={navigateToPost}
             replies={repliesFor(msg.id)}
           />
         ))}
