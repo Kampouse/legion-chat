@@ -561,7 +561,7 @@ export default function FeedView({
     return () => { unsubRef.current?.(); };
   }, [relay]);
 
-  const topLevelPosts = posts.filter((p) => !p.replyToId);
+  const topLevelPosts = posts.filter((p) => !p.replyToId).sort((a, b) => b.created_at - a.created_at);
   const repliesFor = (postId: string) => posts.filter((p) => p.replyToId === postId).sort((a, b) => a.created_at - b.created_at);
 
   const handlePost = useCallback((msg: Message) => {
