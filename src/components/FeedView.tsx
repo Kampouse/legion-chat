@@ -453,7 +453,8 @@ function PostCard({
             {quotedPost && <QuotedPost post={quotedPost} profiles={profiles} onClick={(e?: any) => { if (e) e.stopPropagation(); onNavigateToPost(quotedPost.id); }} />}
 
             {/* Action bar */}
-            <div className="flex items-center gap-6 mt-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mt-3" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-6">
               <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--muted)" }}>
                 <button onClick={() => onReply(msg)} className="active:opacity-60">
                   <MessageCircle size={16} />
@@ -475,6 +476,7 @@ function PostCard({
               <button onClick={() => onQuote(msg)} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
                 <Repeat2 size={16} />
               </button>
+              </div>
               <button onClick={(e) => { e.stopPropagation(); onShare(msg); }} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
                 <Share2 size={16} />
               </button>
