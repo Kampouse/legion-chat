@@ -2,8 +2,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { Message, Profile } from "../lib/types";
 import { subscribeChannel, publishWithAck, signChannelMessage, signReaction } from "../lib/nostr";
 import { FEED_CHANNEL_ID } from "../lib/constants";
-import { Trash2, Copy, Heart, MessageCircle, Loader2, X, Plus } from "lucide-react";
+import { Trash2, Copy, Heart, MessageCircle, Loader2, X, Plus, ImagePlus } from "lucide-react";
 import type { Relay, NostrSigner } from "../lib/nostr";
+import { uploadToNostrBuild } from "../lib/nostr";
 import type { BindingCache } from "../lib/types";
 
 const REACTION_EMOJIS = ["❤️", "👍", "🔥", "😂", "😮", "😢"];
@@ -56,7 +57,10 @@ function ComposeModal({
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setTimeout(() => taRef.current?.focus(), 100); }, []);
 
@@ -68,25 +72,65 @@ function ComposeModal({
   const charLimit = 500;
   const overLimit = charCount > charLimit;
 
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      showToast("Only images supported");
+      return;
+    }
+    if (!signer) return;
+    setUploading(true);
+    // Show local preview immediately
+    const localUrl = URL.createObjectURL(file);
+    setPreviewUrl(localUrl);
+    try {
+      const url = await uploadToNostrBuild(file, signer);
+      // Append URL to text
+      setText((prev) => (prev + (prev ? "\n" : "") + url).trim());
+      // Replace local preview with real URL preview
+      URL.revokeObjectURL(localUrl);
+      setPreviewUrl(url);
+      showToast("Image uploaded!");
+    } catch (e: any) {
+      URL.revokeObjectURL(localUrl);
+      setPreviewUrl(null);
+      showToast("Upload failed: " + (e.message || "unknown error"));
+    }
+    setUploading(false);
+  };
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) handleFile(file);
+        return;
+      }
+    }
+  }, [signer]);
+
   const handleSubmit = async () => {
-    if (!text.trim() || !signer || !relay || overLimit) return;
+    if ((!text.trim() && !previewUrl) || !signer || !relay || overLimit || uploading) return;
     setSending(true);
     try {
+      const content = text.trim();
       if (isReply && replyTo) {
-        const event = await signChannelMessage(signer, text.trim(), FEED_CHANNEL_ID, { id: replyTo.id });
+        const event = await signChannelMessage(signer, content, FEED_CHANNEL_ID, { id: replyTo.id });
         await publishWithAck(relay, event);
         onReply({
-          id: event.id, pubkey: myPubkey, content: text.trim(),
+          id: event.id, pubkey: myPubkey, content,
           created_at: event.created_at, sender: myProfile.display_name || myProfile.name || "You",
           replyToId: replyTo.id, replyToContent: replyTo.content,
           replyToSender: replyName,
         });
         showToast("Reply sent!");
       } else {
-        const event = await signChannelMessage(signer, text.trim(), FEED_CHANNEL_ID);
+        const event = await signChannelMessage(signer, content, FEED_CHANNEL_ID);
         await publishWithAck(relay, event);
         onPost({
-          id: event.id, pubkey: myPubkey, content: text.trim(),
+          id: event.id, pubkey: myPubkey, content,
           created_at: event.created_at, sender: myProfile.display_name || myProfile.name || "You",
         });
         showToast("Posted!");
@@ -105,16 +149,12 @@ function ComposeModal({
     >
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60"
-          style={{ color: "var(--text)" }}
-        >
+        <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--text)" }}>
           <X size={20} />
         </button>
         <button
           onClick={handleSubmit}
-          disabled={!text.trim() || sending || overLimit}
+          disabled={(!text.trim() && !previewUrl) || sending || overLimit || uploading}
           className="px-5 py-1.5 rounded-full text-sm font-bold text-black disabled:opacity-40 transition-opacity"
           style={{ backgroundColor: "var(--accent)" }}
         >
@@ -151,16 +191,59 @@ function ComposeModal({
               ref={taRef}
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onPaste={handlePaste}
               placeholder={isReply ? "Post your reply" : "What's happening?"}
               className="flex-1 bg-transparent text-[17px] resize-none leading-normal outline-none"
               style={{ color: "var(--text)", minHeight: "120px" }}
             />
           </div>
+
+          {/* Image preview */}
+          {(previewUrl || uploading) && (
+            <div className="mt-3 ml-[52px] relative rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", maxWidth: "300px" }}>
+              {previewUrl && <img src={previewUrl} alt="" className="w-full max-h-[200px] object-cover" />}
+              {uploading && (
+                <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }}>
+                  <Loader2 size={24} className="animate-spin text-white" />
+                </div>
+              )}
+              {previewUrl && !uploading && (
+                <button
+                  onClick={() => setPreviewUrl(null)}
+                  className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(0,0,0,0.6)", color: "white" }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Hidden file input */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+          e.target.value = "";
+        }}
+      />
+
       {/* Bottom toolbar */}
-      <div className="flex items-center justify-end px-4 py-3 border-t" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+      <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 disabled:opacity-40"
+          style={{ color: "var(--accent)" }}
+        >
+          <ImagePlus size={18} />
+        </button>
         {charCount > 0 && (
           <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>
             {charCount}/{charLimit}

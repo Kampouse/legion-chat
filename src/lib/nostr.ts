@@ -71,6 +71,46 @@ export async function signChallenge(signer: NostrSigner, challenge: string): Pro
   return JSON.stringify(event);
 }
 
+// ── File Upload (nostr.build NIP-98) ──
+
+export async function uploadToNostrBuild(
+  file: File,
+  signer: NostrSigner,
+): Promise<string> {
+  // Sign a NIP-98 auth event (kind 27235)
+  const authEvent = await signer.signEvent({
+    kind: 27235,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ["u", "https://nostr.build/api/v2/upload/files"],
+      ["method", "POST"],
+    ],
+    content: "Upload to nostr.build",
+  });
+
+  const formData = new FormData();
+  formData.append("fileToUpload", file);
+
+  const res = await fetch("https://nostr.build/api/v2/upload/files", {
+    method: "POST",
+    headers: {
+      Authorization: `Nostr ${btoa(JSON.stringify(authEvent))}`,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Upload failed: ${res.status} ${text}`);
+  }
+
+  const json = await res.json();
+  // API returns { status: "success", data: [{ url: "..." }] }
+  const url = json?.data?.[0]?.url;
+  if (!url) throw new Error("No URL in upload response");
+  return url;
+}
+
 // ── NIP-28 Channel ──
 
 export async function signChannelMessage(
