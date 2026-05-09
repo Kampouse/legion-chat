@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { Message, Profile } from "../lib/types";
 import { subscribeChannel, publishWithAck, signChannelMessage, signReaction } from "../lib/nostr";
 import { FEED_CHANNEL_ID } from "../lib/constants";
-import { Heart, MessageCircle, Loader2, X, Plus, ImagePlus } from "lucide-react";
+import { Heart, MessageCircle, Loader2, X, Plus, ImagePlus, Repeat2 } from "lucide-react";
 import type { Relay, NostrSigner } from "../lib/nostr";
 import { uploadToNostrBuild } from "../lib/nostr";
 import type { BindingCache } from "../lib/types";
@@ -25,6 +25,48 @@ function parseImage(content: string): { text: string; imageUrl: string | null } 
   return { text: content, imageUrl: null };
 }
 
+/** Render text with @mention highlighting */
+function renderContent(text: string, profiles: Record<string, Profile>, allPosts: Message[]) {
+  // Match @displayName patterns or nostr:npub... patterns
+  const parts: JSX.Element[] = [];
+  // Build a lookup: displayName -> pubkey from all known profiles
+  const nameToKey: Record<string, string> = {};
+  for (const [pk, p] of Object.entries(profiles)) {
+    if (p.name) nameToKey[p.name.toLowerCase()] = pk;
+    if (p.display_name) nameToKey[p.display_name.toLowerCase()] = pk;
+  }
+
+  const regex = /@([\w.]+)|nostr:(npub[a-zA-Z0-9]+)/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Push text before the match
+    if (match.index > lastIdx) {
+      parts.push(<span key={key++}>{text.slice(lastIdx, match.index)}</span>);
+    }
+    const mentionName = match[1]?.toLowerCase();
+    const npub = match[2];
+    if (mentionName && nameToKey[mentionName]) {
+      const pk = nameToKey[mentionName];
+      const p = profiles[pk];
+      parts.push(
+        <span key={key++} style={{ color: "var(--accent)" }}>@{p.display_name || p.name}</span>
+      );
+    } else if (npub) {
+      parts.push(<span key={key++} style={{ color: "var(--accent)" }}>{npub.slice(0, 12)}...</span>);
+    } else {
+      parts.push(<span key={key++}>{match[0]}</span>);
+    }
+    lastIdx = match.index + match[0].length;
+  }
+  if (lastIdx < text.length) {
+    parts.push(<span key={key++}>{text.slice(lastIdx)}</span>);
+  }
+  return parts.length > 0 ? parts : text;
+}
+
 function Avatar({ profile, name, size = 40 }: { profile?: Profile; name: string; size?: number }) {
   return (
     <div
@@ -38,11 +80,73 @@ function Avatar({ profile, name, size = 40 }: { profile?: Profile; name: string;
   );
 }
 
+// ── Mention Picker ──
+function MentionPicker({
+  query, profiles, myPubkey, onSelect,
+}: {
+  query: string;
+  profiles: Record<string, Profile>;
+  myPubkey: string;
+  onSelect: (name: string) => void;
+}) {
+  const q = query.toLowerCase();
+  const matches = Object.entries(profiles)
+    .filter(([pk, p]) => pk !== myPubkey && (
+      (p.display_name?.toLowerCase().includes(q)) ||
+      (p.name?.toLowerCase().includes(q))
+    ))
+    .slice(0, 5);
+
+  if (matches.length === 0) return null;
+
+  return (
+    <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl overflow-hidden" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", maxHeight: "200px", overflowY: "auto" }}>
+      {matches.map(([pk, p]) => {
+        const name = p.display_name || p.name || pk.slice(0, 12);
+        return (
+          <button
+            key={pk}
+            onClick={() => onSelect(name)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-left active:opacity-60"
+            style={{ color: "var(--text)" }}
+          >
+            <Avatar profile={p} name={name} size={24} />
+            <span className="text-sm truncate">{name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Quoted Post Card (mini, embedded) ──
+function QuotedPost({ post, profiles }: { post: Message; profiles: Record<string, Profile> }) {
+  const profile = profiles[post.pubkey];
+  const name = post.sender || profile?.display_name || profile?.name || post.pubkey.slice(0, 12) + "...";
+  const { text } = parseImage(post.content);
+
+  return (
+    <div className="mt-2 rounded-xl p-3" style={{ border: "1px solid var(--border)", backgroundColor: "rgba(255,255,255,0.03)" }}>
+      <div className="flex items-center gap-2 mb-1">
+        <Avatar profile={profile} name={name} size={16} />
+        <span className="font-semibold text-[13px] truncate" style={{ color: "var(--text)" }}>{name}</span>
+      </div>
+      {text && (
+        <p className="text-[13px] line-clamp-3 leading-normal" style={{ color: "var(--muted)" }}>
+          {text.length > 200 ? text.slice(0, 200) + "..." : text}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Full-screen Compose Modal ──
 function ComposeModal({
-  replyTo, profiles, myPubkey, myProfile, signer, relay, onClose, onPost, onReply, showToast,
+  replyTo, quotePost, allPosts, profiles, myPubkey, myProfile, signer, relay, onClose, onPost, onReply, showToast,
 }: {
   replyTo: Message | null;
+  quotePost: Message | null;
+  allPosts: Message[];
   profiles: Record<string, Profile>;
   myPubkey: string;
   myProfile: Profile;
@@ -57,12 +161,14 @@ function ComposeModal({
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setTimeout(() => taRef.current?.focus(), 100); }, []);
 
   const isReply = replyTo !== null;
+  const isQuote = quotePost !== null;
   const replyProfile = replyTo ? profiles[replyTo.pubkey] : undefined;
   const replyName = replyTo ? (replyTo.sender || replyProfile?.display_name || replyProfile?.name || replyTo.pubkey.slice(0, 12) + "...") : "";
 
@@ -70,21 +176,27 @@ function ComposeModal({
   const charLimit = 500;
   const overLimit = charCount > charLimit;
 
-  const handleFile = async (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      showToast("Only images supported");
-      return;
+  // Extract mentioned pubkeys from text (@displayName matches)
+  const getMentions = useCallback((): string[] => {
+    const mentioned: string[] = [];
+    for (const [pk, p] of Object.entries(profiles)) {
+      const name = p.display_name || p.name;
+      if (name && text.toLowerCase().includes(`@${name.toLowerCase()}`)) {
+        mentioned.push(pk);
+      }
     }
+    return mentioned;
+  }, [profiles, text]);
+
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) { showToast("Only images supported"); return; }
     if (!signer) return;
     setUploading(true);
-    // Show local preview immediately
     const localUrl = URL.createObjectURL(file);
     setPreviewUrl(localUrl);
     try {
       const url = await uploadToNostrBuild(file, signer);
-      // Append URL to text
       setText((prev) => (prev + (prev ? "\n" : "") + url).trim());
-      // Replace local preview with real URL preview
       URL.revokeObjectURL(localUrl);
       setPreviewUrl(url);
       showToast("Image uploaded!");
@@ -109,27 +221,63 @@ function ComposeModal({
     }
   }, [signer]);
 
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setText(val);
+    // Detect @mention typing
+    const cursorPos = e.target.selectionStart;
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/@(\w*)$/);
+    if (atMatch) {
+      setMentionQuery(atMatch[1]);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const handleMentionSelect = (name: string) => {
+    // Replace the @partial with @full_name
+    const cursorPos = taRef.current?.selectionStart ?? text.length;
+    const textBeforeCursor = text.slice(0, cursorPos);
+    const textAfterCursor = text.slice(cursorPos);
+    const replaced = textBeforeCursor.replace(/@\w*$/, `@${name} `) + textAfterCursor;
+    setText(replaced);
+    setMentionQuery(null);
+    taRef.current?.focus();
+  };
+
   const handleSubmit = async () => {
     if ((!text.trim() && !previewUrl) || !signer || !relay || overLimit || uploading) return;
     setSending(true);
     try {
       const content = text.trim();
+      const mentions = getMentions();
       if (isReply && replyTo) {
-        const event = await signChannelMessage(signer, content, FEED_CHANNEL_ID, { id: replyTo.id });
+        const event = await signChannelMessage(signer, content, FEED_CHANNEL_ID, { id: replyTo.id }, {
+          ...(isQuote && quotePost ? { quoteId: quotePost.id } : {}),
+          mentions,
+        });
         await publishWithAck(relay, event);
         onReply({
           id: event.id, pubkey: myPubkey, content,
           created_at: event.created_at, sender: myProfile.display_name || myProfile.name || "You",
           replyToId: replyTo.id, replyToContent: replyTo.content,
           replyToSender: replyName,
+          ...(isQuote && quotePost ? { quoteId: quotePost.id } : {}),
+          mentions,
         });
         showToast("Reply sent!");
       } else {
-        const event = await signChannelMessage(signer, content, FEED_CHANNEL_ID);
+        const event = await signChannelMessage(signer, content, FEED_CHANNEL_ID, null, {
+          ...(isQuote && quotePost ? { quoteId: quotePost.id } : {}),
+          mentions,
+        });
         await publishWithAck(relay, event);
         onPost({
           id: event.id, pubkey: myPubkey, content,
           created_at: event.created_at, sender: myProfile.display_name || myProfile.name || "You",
+          ...(isQuote && quotePost ? { quoteId: quotePost.id } : {}),
+          mentions,
         });
         showToast("Posted!");
       }
@@ -141,10 +289,7 @@ function ComposeModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex flex-col"
-      style={{ backgroundColor: "var(--bg)", animation: "modalIn 0.2s ease" }}
-    >
+    <div className="fixed inset-0 z-[100] flex flex-col" style={{ backgroundColor: "var(--bg)", animation: "modalIn 0.2s ease" }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
         <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--text)" }}>
@@ -181,19 +326,33 @@ function ComposeModal({
           </div>
         )}
 
+        {/* Quote context */}
+        {isQuote && quotePost && !isReply && (
+          <div className="px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+            <span className="text-xs" style={{ color: "var(--muted)" }}>Quoting</span>
+            <QuotedPost post={quotePost} profiles={profiles} />
+          </div>
+        )}
+
         {/* Compose */}
         <div className="px-4 py-3">
           <div className="flex gap-3">
             <Avatar profile={myProfile} name={myProfile.display_name || myProfile.name || "Me"} size={40} />
-            <textarea
-              ref={taRef}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onPaste={handlePaste}
-              placeholder={isReply ? "Post your reply" : "What's happening?"}
-              className="flex-1 bg-transparent text-[17px] resize-none leading-normal outline-none"
-              style={{ color: "var(--text)", minHeight: "120px" }}
-            />
+            <div className="flex-1 relative">
+              <textarea
+                ref={taRef}
+                value={text}
+                onChange={handleTextChange}
+                onPaste={handlePaste}
+                placeholder={isReply ? "Post your reply" : isQuote ? "Add a comment" : "What's happening?"}
+                className="w-full bg-transparent text-[17px] resize-none leading-normal outline-none"
+                style={{ color: "var(--text)", minHeight: "120px" }}
+              />
+              {/* Mention picker */}
+              {mentionQuery !== null && (
+                <MentionPicker query={mentionQuery} profiles={profiles} myPubkey={myPubkey} onSelect={handleMentionSelect} />
+              )}
+            </div>
           </div>
 
           {/* Image preview */}
@@ -206,11 +365,7 @@ function ComposeModal({
                 </div>
               )}
               {previewUrl && !uploading && (
-                <button
-                  onClick={() => setPreviewUrl(null)}
-                  className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center"
-                  style={{ background: "rgba(0,0,0,0.6)", color: "white" }}
-                >
+                <button onClick={() => setPreviewUrl(null)} className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", color: "white" }}>
                   <X size={12} />
                 </button>
               )}
@@ -220,32 +375,15 @@ function ComposeModal({
       </div>
 
       {/* Hidden file input */}
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFile(file);
-          e.target.value = "";
-        }}
-      />
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
 
       {/* Bottom toolbar */}
       <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 disabled:opacity-40"
-          style={{ color: "var(--accent)" }}
-        >
+        <button onClick={() => fileRef.current?.click()} disabled={uploading} className="w-9 h-9 rounded-full flex items-center justify-center active:opacity-60 disabled:opacity-40" style={{ color: "var(--accent)" }}>
           <ImagePlus size={18} />
         </button>
         {charCount > 0 && (
-          <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>
-            {charCount}/{charLimit}
-          </span>
+          <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>{charCount}/{charLimit}</span>
         )}
       </div>
     </div>
@@ -254,13 +392,15 @@ function ComposeModal({
 
 // ── Post Card ──
 function PostCard({
-  msg, myPubkey, profiles, onReact, onReply, replies,
+  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, replies,
 }: {
   msg: Message;
   myPubkey: string;
   profiles: Record<string, Profile>;
+  allPosts: Message[];
   onReact: (msgId: string, pubkey: string, emoji: string) => void;
   onReply: (msg: Message) => void;
+  onQuote: (msg: Message) => void;
   replies: Message[];
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -271,6 +411,9 @@ function PostCard({
   const heartReactions = (msg.reactions || {})["❤️"] || [];
   const liked = heartReactions.includes(myPubkey);
   const totalLikes = heartReactions.length;
+
+  // Find quoted post
+  const quotedPost = msg.quoteId ? allPosts.find((p) => p.id === msg.quoteId) : null;
 
   return (
     <article className="border-b" style={{ borderColor: "var(--border)" }}>
@@ -285,10 +428,7 @@ function PostCard({
 
             {text && (
               <p className="text-[15px] mt-1 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
-                {expanded || text.length <= 400 ? text : text.slice(0, 400) + "..."}
-                {text.length > 400 && !expanded && (
-                  <button onClick={() => setExpanded(true)} className="ml-1 text-[15px]" style={{ color: "var(--accent)" }}>Show more</button>
-                )}
+                {expanded || text.length <= 400 ? renderContent(text, profiles, allPosts) : <>{text.slice(0, 400) + "..."}<button onClick={() => setExpanded(true)} className="ml-1 text-[15px]" style={{ color: "var(--accent)" }}>Show more</button></>}
               </p>
             )}
 
@@ -298,19 +438,21 @@ function PostCard({
               </div>
             )}
 
+            {/* Quoted post */}
+            {quotedPost && <QuotedPost post={quotedPost} profiles={profiles} />}
+
             {/* Action bar */}
             <div className="flex items-center gap-6 mt-3">
               <button onClick={() => onReply(msg)} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
                 <MessageCircle size={16} />
                 {replies.length > 0 && <span>{replies.length}</span>}
               </button>
-              <button
-                onClick={() => onReact(msg.id, msg.pubkey, "❤️")}
-                className="flex items-center gap-1.5 text-[13px] active:scale-110 transition-transform"
-                style={{ color: liked ? "#ef4444" : "var(--muted)" }}
-              >
+              <button onClick={() => onReact(msg.id, msg.pubkey, "❤️")} className="flex items-center gap-1.5 text-[13px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
                 <Heart size={16} fill={liked ? "currentColor" : "none"} />
                 {totalLikes > 0 && <span>{totalLikes}</span>}
+              </button>
+              <button onClick={() => onQuote(msg)} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                <Repeat2 size={16} />
               </button>
             </div>
 
@@ -360,7 +502,8 @@ export default function FeedView({
 }: FeedViewProps) {
   const [posts, setPosts] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
-  const [composeTarget, setComposeTarget] = useState<Message | null | "new">(null); // null = closed, "new" = new post, Message = reply
+  // null = closed, "new" = new post, Message = reply, { quote: Message } = quote
+  const [composeTarget, setComposeTarget] = useState<{ type: "new" | "reply" | "quote"; post: Message | null } | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
 
   // Subscribe to feed channel
@@ -373,10 +516,14 @@ export default function FeedView({
       const sender = bindingsRef.current?.pubkeyIndex[event.pubkey] || event.pubkey.slice(0, 12) + "...";
       const eTags = (event.tags || []).filter((t: string[]) => t[0] === "e");
       const replyTag = eTags.find((t: string[]) => t[3] === "reply");
+      const qTag = (event.tags || []).find((t: string[]) => t[0] === "q");
+      const pTags = (event.tags || []).filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1]);
       const msg: Message = {
         id: event.id, pubkey: event.pubkey, content: event.content,
         created_at: event.created_at, sender,
         ...(replyTag ? { replyToId: replyTag[1] } : {}),
+        ...(qTag ? { quoteId: qTag[1] } : {}),
+        ...(pTags.length > 0 ? { mentions: pTags } : {}),
       };
       collectedIds.push(event.id);
       setPosts((prev) => {
@@ -418,15 +565,12 @@ export default function FeedView({
 
   const handleReact = useCallback(async (msgId: string, msgPubkey: string, emoji: string) => {
     if (!signer || !relay) return;
-
-    // Check current state via a ref-free read
     let alreadyLiked = false;
     setPosts((prev) => {
       const post = prev.find((m) => m.id === msgId);
       alreadyLiked = (post?.reactions?.[emoji] || []).includes(myPubkey);
       return prev;
     });
-
     if (alreadyLiked) {
       setPosts((prev) => prev.map((m) => {
         if (m.id !== msgId) return m;
@@ -436,37 +580,18 @@ export default function FeedView({
         return { ...m, reactions };
       }));
       try {
-        const event = await signer.signEvent({
-          kind: 7, created_at: Math.floor(Date.now() / 1000),
-          tags: [["e", msgId], ["p", msgPubkey]], content: "-",
-        });
+        const event = await signer.signEvent({ kind: 7, created_at: Math.floor(Date.now() / 1000), tags: [["e", msgId], ["p", msgPubkey]], content: "-" });
         await relay.publish(event);
       } catch {
-        setPosts((prev) => prev.map((m) => {
-          if (m.id !== msgId) return m;
-          const reactions = { ...(m.reactions || {}) };
-          reactions[emoji] = [...(reactions[emoji] || []), myPubkey];
-          return { ...m, reactions };
-        }));
+        setPosts((prev) => prev.map((m) => { if (m.id !== msgId) return m; const r = { ...(m.reactions || {}) }; r[emoji] = [...(r[emoji] || []), myPubkey]; return { ...m, reactions: r }; }));
       }
     } else {
-      setPosts((prev) => prev.map((m) => {
-        if (m.id !== msgId) return m;
-        const reactions = { ...(m.reactions || {}) };
-        reactions[emoji] = [...(reactions[emoji] || []), myPubkey];
-        return { ...m, reactions };
-      }));
+      setPosts((prev) => prev.map((m) => { if (m.id !== msgId) return m; const r = { ...(m.reactions || {}) }; r[emoji] = [...(r[emoji] || []), myPubkey]; return { ...m, reactions: r }; }));
       try {
         const event = await signReaction(signer, msgId, msgPubkey, emoji);
         await relay.publish(event);
       } catch {
-        setPosts((prev) => prev.map((m) => {
-          if (m.id !== msgId) return m;
-          const reactions = { ...(m.reactions || {}) };
-          reactions[emoji] = (reactions[emoji] || []).filter((pk) => pk !== myPubkey);
-          if (reactions[emoji].length === 0) delete reactions[emoji];
-          return { ...m, reactions };
-        }));
+        setPosts((prev) => prev.map((m) => { if (m.id !== msgId) return m; const r = { ...(m.reactions || {}) }; r[emoji] = (r[emoji] || []).filter((pk) => pk !== myPubkey); if (r[emoji].length === 0) delete r[emoji]; return { ...m, reactions: r }; }));
       }
     }
   }, [signer, myPubkey, relay]);
@@ -475,7 +600,6 @@ export default function FeedView({
 
   return (
     <div className="flex flex-col w-full h-full relative">
-      {/* Feed */}
       <div className="flex-1 overflow-y-auto">
         {loading && topLevelPosts.length === 0 && (
           <div className="flex items-center justify-center py-20">
@@ -494,17 +618,19 @@ export default function FeedView({
             msg={msg}
             myPubkey={myPubkey}
             profiles={profiles}
+            allPosts={posts}
             onReact={handleReact}
-            onReply={(m) => setComposeTarget(m)}
+            onReply={(m) => setComposeTarget({ type: "reply", post: m })}
+            onQuote={(m) => setComposeTarget({ type: "quote", post: m })}
             replies={repliesFor(msg.id)}
           />
         ))}
       </div>
 
-      {/* FAB — compose button */}
+      {/* FAB */}
       {composeTarget === null && (
         <button
-          onClick={() => setComposeTarget("new")}
+          onClick={() => setComposeTarget({ type: "new", post: null })}
           className="absolute bottom-5 right-5 w-14 h-14 rounded-full flex items-center justify-center shadow-lg active:scale-95 transition-transform"
           style={{ backgroundColor: "var(--accent)", color: "#000", boxShadow: "0 4px 20px rgba(0,236,151,0.3)" }}
         >
@@ -515,7 +641,9 @@ export default function FeedView({
       {/* Compose modal */}
       {composeTarget !== null && (
         <ComposeModal
-          replyTo={composeTarget === "new" ? null : composeTarget}
+          replyTo={composeTarget.type === "reply" ? composeTarget.post : null}
+          quotePost={composeTarget.type === "quote" ? composeTarget.post : null}
+          allPosts={posts}
           profiles={profiles}
           myPubkey={myPubkey}
           myProfile={myProfile}

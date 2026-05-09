@@ -118,10 +118,19 @@ export async function signChannelMessage(
   content: string,
   channelId: string,
   replyTo?: { id: string } | null,
+  options?: { quoteId?: string; mentions?: string[] },
 ): Promise<any> {
   const tags: string[][] = [["e", channelId, relayHint(DEFAULT_RELAY), "root"]];
   if (replyTo) {
     tags.push(["e", replyTo.id, relayHint(DEFAULT_RELAY), "reply"]);
+  }
+  if (options?.quoteId) {
+    tags.push(["q", options.quoteId]);
+  }
+  if (options?.mentions?.length) {
+    for (const pk of options.mentions) {
+      tags.push(["p", pk]);
+    }
   }
   return signer.signEvent({
     kind: 42,

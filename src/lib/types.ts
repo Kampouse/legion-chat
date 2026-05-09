@@ -9,6 +9,8 @@ export interface Message {
   replyToId?: string;
   replyToContent?: string;
   replyToSender?: string;
+  quoteId?: string;
+  mentions?: string[]; // mentioned pubkeys
   reactions?: Record<string, string[]>; // emoji -> [pubkey, ...]
 }
 
