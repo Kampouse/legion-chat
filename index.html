@@ -4,7 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#0a0a0a" />
-    <style>html{height:100%;overflow:hidden;background:#0a0a0a}body{margin:0;background:#0a0a0a;position:fixed;inset:0;overflow:hidden}</style>
+    <style>html,body{height:100%;margin:0;background:#0a0a0a}</style>
+    <script>
+      // Visual Viewport API — prevents white gap when mobile keyboard opens
+      function vv(){var v=window.visualViewport;if(!v)return;document.documentElement.style.setProperty('--vvh',v.height+'px')}
+      if(window.visualViewport){window.visualViewport.addEventListener('resize',vv);window.visualViewport.addEventListener('scroll',vv);vv()}
+    </script>
     <title>Legion Chat</title>
   </head>
   <body>
