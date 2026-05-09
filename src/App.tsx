@@ -368,7 +368,6 @@ function ChatApp() {
         prev.map((m) => (m.id === optimisticId ? { ...m, id: event.id, pending: false, failed: !result.ok } : m))
       );
       if (!result.ok) setError("Message rejected: " + (result.message || "unknown reason"));
-      else showToast("Message sent");
     } catch (e: any) {
       setMessages((prev) =>
         prev.map((m) => (m.id === optimisticId ? { ...m, pending: false, failed: true } : m))

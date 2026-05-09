@@ -92,64 +92,31 @@ export default function MessageList({
 
   const clearSelection = () => setSelectedId(null);
 
-  /** Action button bar shared between desktop hover and mobile tap-to-select */
-  const actionButtons = (msg: Message, isMine: boolean, variant: "inline" | "floating") => {
-    const baseBtn = "w-7 h-7 rounded flex items-center justify-center text-xs";
-    const btnStyle = (color: string) => ({
-      backgroundColor: "var(--surface)",
-      border: "1px solid var(--border)",
-      color,
-    });
-    if (variant === "floating") {
-      return (
-        <div
-          className="flex items-center gap-1 px-2 py-1 rounded-full shadow-lg"
-          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}
-        >
-          <button
-            onClick={(e) => { e.stopPropagation(); onReply(msg); clearSelection(); }}
-            className={baseBtn}
-            style={btnStyle("var(--muted)")}
-            title="Reply"
-          >
-            ↩
-          </button>
-          {isMine && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(msg.id); clearSelection(); }}
-              className={baseBtn}
-              style={btnStyle("#ef4444")}
-              title="Delete"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      );
-    }
-    return (
-      <div className={`flex items-center gap-0.5 ${isMine ? "order-first" : "order-last"}`}>
+  const actionButtons = (msg: Message, isMine: boolean) => (
+    <div
+      className="flex items-center gap-1 px-2 py-1 rounded-full shadow-lg"
+      style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}
+    >
+      <button
+        onClick={(e) => { e.stopPropagation(); onReply(msg); clearSelection(); }}
+        className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
+        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
+        title="Reply"
+      >
+        ↩
+      </button>
+      {isMine && (
         <button
-          onClick={() => onReply(msg)}
-          className="w-6 h-6 rounded flex items-center justify-center text-[11px]"
-          style={btnStyle("var(--muted)")}
-          title="Reply"
+          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(msg.id); clearSelection(); }}
+          className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
+          style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "#ef4444" }}
+          title="Delete"
         >
-          ↩
+          ✕
         </button>
-        {isMine && (
-          <button
-            onClick={() => setConfirmDeleteId(msg.id)}
-            className="w-6 h-6 rounded flex items-center justify-center text-[11px]"
-            style={btnStyle("#ef4444")}
-            title="Delete"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-    );
-  };
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -231,8 +198,6 @@ export default function MessageList({
                     <span className="text-[10px] font-mono mb-0.5 px-1" style={{ color: "var(--muted)" }}>{displayName}</span>
                   )}
                   <div className="flex items-end gap-1.5">
-                    {/* Desktop inline action buttons (hover or tap-selected) */}
-                    {showActions && actionButtons(msg, mine, "inline")}
                     <div
                       className="px-3 py-2 text-sm break-words leading-relaxed relative"
                       style={{
@@ -272,10 +237,10 @@ export default function MessageList({
                       )}
                     </div>
                   </div>
-                  {/* Mobile floating action bar — appears below bubble on tap-select */}
-                  {isSelected && !msg.pending && (
-                    <div className="mt-1 md:hidden" style={{ pointerEvents: "auto" }}>
-                      {actionButtons(msg, mine, "floating")}
+                  {/* Action bar — shown on desktop hover or mobile tap-select */}
+                  {showActions && !msg.pending && (
+                    <div className="mt-1">
+                      {actionButtons(msg, mine)}
                     </div>
                   )}
                   {!sameSender && (
