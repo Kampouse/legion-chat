@@ -298,20 +298,17 @@ function ComposeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center" style={{ animation: "sheetBgIn 0.15s ease" }}>
-      {/* Backdrop (click to close) */}
-      <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={onClose} />
-      {/* Dialog */}
-      <div className="relative flex flex-col w-full sm:max-w-lg sm:rounded-2xl sm:max-h-[85vh] h-full sm:h-auto" style={{ backgroundColor: "var(--bg)", animation: "modalIn 0.2s ease" }}>
+    <div className="fixed inset-0 z-[100] flex flex-col" style={{ backgroundColor: "var(--bg)", animation: "modalIn 0.2s ease" }}>
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-center gap-4 px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
         <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--text)" }}>
           <X size={20} />
         </button>
+        <span className="font-semibold text-[15px]" style={{ color: "var(--text)" }}>{isReply ? "Reply" : isQuote ? "Quote" : "Compose"}</span>
         <button
           onClick={handleSubmit}
           disabled={(!text.trim() && !previewUrl) || sending || overLimit || uploading}
-          className="px-5 py-1.5 rounded-full text-sm font-bold text-black disabled:opacity-40 transition-opacity"
+          className="ml-auto px-5 py-1.5 rounded-full text-sm font-bold text-black disabled:opacity-40 transition-opacity"
           style={{ backgroundColor: "var(--accent)" }}
         >
           {sending ? <Loader2 size={14} className="animate-spin inline" /> : isReply ? "Reply" : "Post"}
@@ -320,21 +317,21 @@ function ComposeModal({
 
       {/* Content area */}
       <div className="flex-1 overflow-y-auto">
-        {/* Reply context */}
+        {/* Reply context — full post */}
         {isReply && replyTo && (
           <div className="px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
             <div className="flex gap-3">
-              <Avatar profile={replyProfile} name={replyName} size={32} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-sm" style={{ color: "var(--text)" }}>{replyName}</span>
-                  <span className="text-xs" style={{ color: "var(--muted)" }}>{timeAgo(replyTo.created_at)}</span>
-                </div>
-                <p className="text-sm mt-1 line-clamp-3" style={{ color: "var(--muted)" }}>{replyTo.content}</p>
+              <div className="flex flex-col items-center">
+                <Avatar profile={replyProfile} name={replyName} size={40} />
+                <div className="flex-1 w-px mt-2" style={{ backgroundColor: "var(--border)" }} />
               </div>
-            </div>
-            <div className="mt-2 pl-11 text-xs" style={{ color: "var(--muted)" }}>
-              Replying to <span style={{ color: "var(--accent)" }}>@{replyName}</span>
+              <div className="flex-1 min-w-0 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-[15px]" style={{ color: "var(--text)" }}>{replyName}</span>
+                  <span className="text-[13px]" style={{ color: "var(--muted)" }}>· {timeAgo(replyTo.created_at)}</span>
+                </div>
+                <p className="text-[15px] mt-1 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>{replyTo.content}</p>
+              </div>
             </div>
           </div>
         )}
@@ -347,7 +344,7 @@ function ComposeModal({
           </div>
         )}
 
-        {/* Compose */}
+        {/* Your reply */}
         <div className="px-4 py-3">
           <div className="flex gap-3">
             <Avatar profile={myProfile} name={myProfile.display_name || myProfile.name || "Me"} size={40} />
@@ -398,7 +395,6 @@ function ComposeModal({
         {charCount > 0 && (
           <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>{charCount}/{charLimit}</span>
         )}
-      </div>
       </div>
     </div>
   );
