@@ -293,8 +293,13 @@ function ChatApp() {
     };
   }, [screen, accountId, relayUrl, signer, myPubkey, reconnectTrigger]);
 
+  const sendScrollRef = useRef(false);
+
   useEffect(() => {
-    if (autoScroll && messagesEndRef.current) {
+    if (sendScrollRef.current) {
+      sendScrollRef.current = false;
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    } else if (autoScroll && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, autoScroll]);
@@ -370,6 +375,7 @@ function ChatApp() {
     }
     const content = input.trim();
     setInput(""); setSending(true); setError("");
+    sendScrollRef.current = true;
     const currentReplyTo = replyTo;
     setReplyTo(null);
     const optimisticId = `pending-${Date.now()}`;
