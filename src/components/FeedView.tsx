@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { Message, Profile } from "../lib/types";
 import { subscribeChannel, publishWithAck, signChannelMessage, signReaction } from "../lib/nostr";
 import { FEED_CHANNEL_ID } from "../lib/constants";
-import { Heart, MessageCircle, Loader2, X, Plus, ImagePlus, Repeat2 } from "lucide-react";
+import { Heart, MessageCircle, Loader2, X, Plus, ImagePlus, Repeat2, Share2 } from "lucide-react";
 import type { Relay, NostrSigner } from "../lib/nostr";
 import { uploadToNostrBuild } from "../lib/nostr";
 import type { BindingCache } from "../lib/types";
@@ -401,7 +401,7 @@ function ComposeModal({
 
 // ── Post Card ──
 function PostCard({
-  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, onNavigateToPost, replies,
+  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, onNavigateToPost, onShare, replies,
 }: {
   msg: Message;
   myPubkey: string;
@@ -411,6 +411,7 @@ function PostCard({
   onReply: (msg: Message) => void;
   onQuote: (msg: Message) => void;
   onNavigateToPost: (id: string) => void;
+  onShare: (msg: Message) => void;
   replies: Message[];
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -474,6 +475,9 @@ function PostCard({
               <button onClick={() => onQuote(msg)} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
                 <Repeat2 size={16} />
               </button>
+              <button onClick={(e) => { e.stopPropagation(); onShare(msg); }} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                <Share2 size={16} />
+              </button>
             </div>
 
             {msg.pending && <span className="text-[10px] mt-1 inline-block" style={{ color: "var(--muted)" }}>sending...</span>}
@@ -509,11 +513,12 @@ interface FeedViewProps {
   bindingsRef: React.RefObject<BindingCache | null>;
   relay: Relay | null;
   connState: string;
+  scrollToPostId?: string | null;
   showToast: (msg: string) => void;
 }
 
 export default function FeedView({
-  signer, myPubkey, profiles, bindingsRef, relay, connState, showToast,
+  signer, myPubkey, profiles, bindingsRef, relay, connState, scrollToPostId, showToast,
 }: FeedViewProps) {
   const [posts, setPosts] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -572,6 +577,13 @@ export default function FeedView({
     return () => { unsubRef.current?.(); };
   }, [relay]);
 
+  // Scroll to post from deep link once loaded
+  useEffect(() => {
+    if (!scrollToPostId || loading || posts.length === 0) return;
+    const timer = setTimeout(() => navigateToPost(scrollToPostId), 300);
+    return () => clearTimeout(timer);
+  }, [scrollToPostId, loading, posts]);
+
   const topLevelPosts = posts.filter((p) => !p.replyToId).sort((a, b) => b.created_at - a.created_at);
   const repliesFor = (postId: string) => posts.filter((p) => p.replyToId === postId).sort((a, b) => a.created_at - b.created_at);
 
@@ -616,12 +628,26 @@ export default function FeedView({
     const el = feedScrollRef.current?.querySelector(`[data-post-id="${id}"]`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Brief highlight flash
       el.style.transition = "background 0.3s";
       el.style.background = "rgba(0,236,151,0.12)";
       setTimeout(() => { el.style.background = ""; }, 1200);
     }
   }, []);
+
+  const handleShare = useCallback(async (msg: Message) => {
+    const url = `${window.location.origin}${window.location.pathname}?post=${msg.id}`;
+    const profile = profiles[msg.pubkey];
+    const name = msg.sender || profile?.display_name || profile?.name || "Someone";
+    const text = `${name} on Legion: "${msg.content.slice(0, 100)}${msg.content.length > 100 ? "..." : ""}"`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Legion Post", text, url });
+      } catch {}
+    } else {
+      await navigator.clipboard.writeText(url);
+      showToast("Link copied!");
+    }
+  }, [profiles, showToast]);
 
   const myProfile = profiles[myPubkey] || {};
 
@@ -650,6 +676,7 @@ export default function FeedView({
             onReply={(m) => setComposeTarget({ type: "reply", post: m })}
             onQuote={(m) => setComposeTarget({ type: "quote", post: m })}
             onNavigateToPost={navigateToPost}
+            onShare={handleShare}
             replies={repliesFor(msg.id)}
           />
         ))}

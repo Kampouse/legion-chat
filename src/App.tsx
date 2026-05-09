@@ -86,6 +86,19 @@ function ChatApp() {
   const [showSearch, setShowSearch] = useState(false);
   const [activeTab, setActiveTab] = useState<"feed" | "chat">("chat");
 
+  // Deep link: ?post=<id>
+  const [deepLinkPostId, setDeepLinkPostId] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const postId = params.get("post");
+    if (postId) {
+      setDeepLinkPostId(postId);
+      setActiveTab("feed");
+      // Clean URL without reload
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
   // Toast
   const [toastMsg, setToastMsg] = useState("");
   const [toastKey, setToastKey] = useState(0);
@@ -645,6 +658,7 @@ function ChatApp() {
                 bindingsRef={bindingsRef}
                 relay={relayRef.current}
                 connState={connState}
+                scrollToPostId={deepLinkPostId}
                 showToast={showToast}
               />
             </div>
