@@ -1,6 +1,7 @@
 import { useMemo, Fragment, useState, useRef, useCallback, type RefObject } from "react";
 import type { Message, Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
+import { Reply, Trash2, X, ChevronDown } from "lucide-react";
 
 function parseContent(content: string) {
   const segments: { type: "text" | "link"; value: string }[] = [];
@@ -259,7 +260,7 @@ export default function MessageList({
                         style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
                         title="Reply"
                       >
-                        ↩
+                        <Reply size={12} />
                       </button>
                     )}
                     <div
@@ -283,7 +284,7 @@ export default function MessageList({
                       {offset > 15 && (
                         <div className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1"
                           style={{ right: "100%", marginRight: 8, color: "var(--accent)", opacity: Math.min(absOffset / SWIPE_THRESHOLD, 1) }}>
-                          <span className="text-lg">↩</span>
+                          <Reply size={18} />
                           <span className="text-[10px] font-medium">Reply</span>
                         </div>
                       )}
@@ -291,7 +292,7 @@ export default function MessageList({
                         <div className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1"
                           style={{ left: "100%", marginLeft: 8, color: "#ef4444", opacity: Math.min(absOffset / SWIPE_THRESHOLD, 1) }}>
                           <span className="text-[10px] font-medium">Delete</span>
-                          <span className="text-lg">✕</span>
+                          <Trash2 size={18} />
                         </div>
                       )}
                       {/* Reply preview */}
@@ -328,7 +329,7 @@ export default function MessageList({
                         style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "#ef4444" }}
                         title="Delete"
                       >
-                        ✕
+                        <Trash2 size={12} />
                       </button>
                     )}
                   </div>
@@ -401,7 +402,7 @@ export default function MessageList({
           className="absolute bottom-24 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full flex items-center justify-center shadow-lg z-10"
           style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
         >
-          ↓
+          <ChevronDown size={18} />
         </button>
       )}
     </>

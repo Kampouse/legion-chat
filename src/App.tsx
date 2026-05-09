@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Search, Settings } from "lucide-react";
 import { NearWalletProvider, useNearWallet } from "./lib/NearWalletContext";
 import { checkSbt, sendBindingTx } from "./lib/near";
 import {
@@ -432,9 +433,9 @@ function ChatApp() {
               style={{ color: showSearch ? "var(--accent)" : "var(--muted)" }}
               title="Search messages"
             >
-              🔍
+              <Search size={16} />
             </button>
-            <button onClick={() => setShowSettings(true)} className="text-lg px-2 py-1 rounded" style={{ color: "var(--muted)" }}>⚙️</button>
+            <button onClick={() => setShowSettings(true)} className="px-2 py-1 rounded" style={{ color: "var(--muted)" }}><Settings size={18} /></button>
           </div>
         </header>
       )}

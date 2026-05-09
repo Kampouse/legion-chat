@@ -2,6 +2,7 @@ import type { NostrProfile, NostrSigner, Relay, ConnectionState } from "../lib/n
 import type { Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
 import { CHANNEL_ID } from "../lib/constants";
+import { X } from "lucide-react";
 
 interface SettingsPanelProps {
   showSettings: boolean;
@@ -53,7 +54,7 @@ export default function SettingsPanel({
       <div className="m-auto w-full max-w-2xl mx-4 rounded-2xl overflow-hidden flex flex-col max-h-[85vh]" style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)" }}>
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: "var(--border)" }}>
           <span className="font-semibold">Settings</span>
-          <button onClick={() => { setShowSettings(false); setEditProfile(null); }} className="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style={{ color: "var(--muted)", backgroundColor: "var(--surface)" }}>✕</button>
+          <button onClick={() => { setShowSettings(false); setEditProfile(null); }} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: "var(--muted)", backgroundColor: "var(--surface)" }}><X size={16} /></button>
         </div>
         <div className="overflow-y-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 overflow-hidden">

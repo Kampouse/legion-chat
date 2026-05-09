@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import type { ConnectionState } from "../lib/nostr";
+import { X, SmilePlus, ArrowUp, Loader2 } from "lucide-react";
 import EmojiPicker from "./EmojiPicker";
 
 interface MessageInputProps {
@@ -54,7 +55,7 @@ export default function MessageInput({
             className="ml-auto w-8 h-8 rounded-full flex items-center justify-center shrink-0 active:opacity-60"
             style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)" }}
           >
-            ✕
+            <X size={14} />
           </button>
         </div>
       )}
@@ -77,7 +78,7 @@ export default function MessageInput({
           }}
           aria-label="Emoji picker"
         >
-          😊
+          <SmilePlus size={18} />
         </button>
         <textarea
           ref={taRef}
@@ -108,7 +109,7 @@ export default function MessageInput({
           className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center font-bold text-black disabled:opacity-40 transition-opacity"
           style={{ backgroundColor: "var(--accent)" }}
         >
-          {sending ? "..." : "↑"}
+          {sending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
         </button>
       </div>
     </>

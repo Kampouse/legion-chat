@@ -13,6 +13,7 @@
     "@hot-labs/near-connect": "^0.11.2",
     "@nostr-wot/signers": "^0.4.0",
     "buffer": "^6.0.3",
+    "lucide-react": "^1.14.0",
     "near-api-js": "^7.2.0",
     "nostr-tools": "^2.23.3",
     "react": "^19.2.5",
