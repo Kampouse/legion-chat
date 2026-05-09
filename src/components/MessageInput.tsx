@@ -28,7 +28,13 @@ export default function MessageInput({
       {replyTo && (
         <div className="px-4 py-1.5 flex items-center gap-2 text-xs" style={{ backgroundColor: "var(--surface)", borderTop: "1px solid var(--border)" }}>
           <span style={{ color: "var(--muted)" }}>Replying to <strong>{replyingTo}</strong></span>
-          <button onClick={() => setReplyTo(null)} className="ml-auto" style={{ color: "var(--muted)" }}>✕</button>
+          <button
+            onClick={() => setReplyTo(null)}
+            className="ml-auto w-8 h-8 rounded-full flex items-center justify-center shrink-0 active:opacity-60"
+            style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--muted)" }}
+          >
+            ✕
+          </button>
         </div>
       )}
       <div className="p-3 border-t flex items-end gap-2" style={{ borderColor: "var(--border)" }}>
