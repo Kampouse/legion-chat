@@ -2,12 +2,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { Message, Profile } from "../lib/types";
 import { subscribeChannel, publishWithAck, signChannelMessage, signReaction } from "../lib/nostr";
 import { FEED_CHANNEL_ID } from "../lib/constants";
-import { Trash2, Copy, Heart, MessageCircle, Loader2, X, Plus, ImagePlus } from "lucide-react";
+import { Heart, MessageCircle, Loader2, X, Plus, ImagePlus } from "lucide-react";
 import type { Relay, NostrSigner } from "../lib/nostr";
 import { uploadToNostrBuild } from "../lib/nostr";
 import type { BindingCache } from "../lib/types";
-
-const REACTION_EMOJIS = ["❤️", "👍", "🔥", "😂", "😮", "😢"];
 
 function timeAgo(ts: number): string {
   const s = Math.floor(Date.now() / 1000) - ts;
@@ -256,29 +254,23 @@ function ComposeModal({
 
 // ── Post Card ──
 function PostCard({
-  msg, myPubkey, profiles, bindingsRef, onReact, onReply, onDelete, onCopy, replies,
+  msg, myPubkey, profiles, onReact, onReply, replies,
 }: {
   msg: Message;
   myPubkey: string;
   profiles: Record<string, Profile>;
-  bindingsRef: React.RefObject<BindingCache | null>;
   onReact: (msgId: string, pubkey: string, emoji: string) => void;
   onReply: (msg: Message) => void;
-  onDelete: (id: string) => void;
-  onCopy: (text: string) => void;
   replies: Message[];
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [showReactions, setShowReactions] = useState(false);
   const [showThread, setShowThread] = useState(false);
-  const mine = msg.pubkey === myPubkey;
   const profile = profiles[msg.pubkey];
   const displayName = msg.sender || profile?.display_name || profile?.name || msg.pubkey.slice(0, 12) + "...";
   const { text, imageUrl } = parseImage(msg.content);
-  const reactions = msg.reactions || {};
-  const reactionEntries = Object.entries(reactions).filter(([, pks]) => pks.length > 0);
-  const totalReactions = reactionEntries.reduce((sum, [, pks]) => sum + pks.length, 0);
-  const myReaction = reactionEntries.find(([, pks]) => pks.includes(myPubkey));
+  const heartReactions = (msg.reactions || {})["❤️"] || [];
+  const liked = heartReactions.includes(myPubkey);
+  const totalLikes = heartReactions.length;
 
   return (
     <article className="border-b" style={{ borderColor: "var(--border)" }}>
@@ -307,48 +299,20 @@ function PostCard({
             )}
 
             {/* Action bar */}
-            <div className="flex items-center justify-between mt-3 max-w-[300px]">
-              <button onClick={() => onReply(msg)} className="flex items-center gap-1 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
+            <div className="flex items-center gap-6 mt-3">
+              <button onClick={() => onReply(msg)} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
                 <MessageCircle size={16} />
                 {replies.length > 0 && <span>{replies.length}</span>}
               </button>
-              <button onClick={() => setShowReactions(!showReactions)} className="flex items-center gap-1 text-[13px] active:opacity-60" style={{ color: myReaction ? "rgba(0,236,151,0.8)" : "var(--muted)" }}>
-                <Heart size={16} fill={myReaction ? "currentColor" : "none"} />
-                {totalReactions > 0 && <span>{totalReactions}</span>}
+              <button
+                onClick={() => onReact(msg.id, msg.pubkey, "❤️")}
+                className="flex items-center gap-1.5 text-[13px] active:scale-110 transition-transform"
+                style={{ color: liked ? "#ef4444" : "var(--muted)" }}
+              >
+                <Heart size={16} fill={liked ? "currentColor" : "none"} />
+                {totalLikes > 0 && <span>{totalLikes}</span>}
               </button>
-              <button onClick={() => onCopy(msg.content)} className="flex items-center gap-1 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
-                <Copy size={16} />
-              </button>
-              {mine && (
-                <button onClick={() => onDelete(msg.id)} className="flex items-center gap-1 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
-                  <Trash2 size={16} />
-                </button>
-              )}
             </div>
-
-            {showReactions && (
-              <div className="flex gap-2 mt-2 px-2 py-1.5 rounded-full inline-flex" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}>
-                {REACTION_EMOJIS.map((emoji) => (
-                  <button key={emoji} onClick={() => { onReact(msg.id, msg.pubkey, emoji); setShowReactions(false); }} className="active:scale-90 transition-transform" style={{ fontSize: "20px", padding: "2px 4px" }}>
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {reactionEntries.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {reactionEntries.map(([emoji, pks]) => (
-                  <span key={emoji} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs" style={{
-                    backgroundColor: pks.includes(myPubkey) ? "rgba(0,236,151,0.15)" : "rgba(255,255,255,0.08)",
-                    border: `1px solid ${pks.includes(myPubkey) ? "var(--accent)" : "rgba(255,255,255,0.12)"}`,
-                    color: "var(--text)",
-                  }}>
-                    {emoji} {pks.length > 1 && <span style={{ color: "var(--muted)" }}>{pks.length}</span>}
-                  </span>
-                ))}
-              </div>
-            )}
 
             {msg.pending && <span className="text-[10px] mt-1 inline-block" style={{ color: "var(--muted)" }}>sending...</span>}
             {msg.failed && <span className="text-[10px] mt-1 inline-block text-red-400">failed</span>}
@@ -454,41 +418,58 @@ export default function FeedView({
 
   const handleReact = useCallback(async (msgId: string, msgPubkey: string, emoji: string) => {
     if (!signer || !relay) return;
-    setPosts((prev) => prev.map((m) => {
-      if (m.id !== msgId) return m;
-      const reactions = { ...(m.reactions || {}) };
-      const current = reactions[emoji] || [];
-      if (current.includes(myPubkey)) return m;
-      reactions[emoji] = [...current, myPubkey];
-      return { ...m, reactions };
-    }));
-    try {
-      const event = await signReaction(signer, msgId, msgPubkey, emoji);
-      await relay.publish(event);
-    } catch {
+
+    // Check current state via a ref-free read
+    let alreadyLiked = false;
+    setPosts((prev) => {
+      const post = prev.find((m) => m.id === msgId);
+      alreadyLiked = (post?.reactions?.[emoji] || []).includes(myPubkey);
+      return prev;
+    });
+
+    if (alreadyLiked) {
       setPosts((prev) => prev.map((m) => {
         if (m.id !== msgId) return m;
         const reactions = { ...(m.reactions || {}) };
-        const current = reactions[emoji] || [];
-        reactions[emoji] = current.filter((pk) => pk !== myPubkey);
+        reactions[emoji] = (reactions[emoji] || []).filter((pk) => pk !== myPubkey);
         if (reactions[emoji].length === 0) delete reactions[emoji];
         return { ...m, reactions };
       }));
+      try {
+        const event = await signer.signEvent({
+          kind: 7, created_at: Math.floor(Date.now() / 1000),
+          tags: [["e", msgId], ["p", msgPubkey]], content: "-",
+        });
+        await relay.publish(event);
+      } catch {
+        setPosts((prev) => prev.map((m) => {
+          if (m.id !== msgId) return m;
+          const reactions = { ...(m.reactions || {}) };
+          reactions[emoji] = [...(reactions[emoji] || []), myPubkey];
+          return { ...m, reactions };
+        }));
+      }
+    } else {
+      setPosts((prev) => prev.map((m) => {
+        if (m.id !== msgId) return m;
+        const reactions = { ...(m.reactions || {}) };
+        reactions[emoji] = [...(reactions[emoji] || []), myPubkey];
+        return { ...m, reactions };
+      }));
+      try {
+        const event = await signReaction(signer, msgId, msgPubkey, emoji);
+        await relay.publish(event);
+      } catch {
+        setPosts((prev) => prev.map((m) => {
+          if (m.id !== msgId) return m;
+          const reactions = { ...(m.reactions || {}) };
+          reactions[emoji] = (reactions[emoji] || []).filter((pk) => pk !== myPubkey);
+          if (reactions[emoji].length === 0) delete reactions[emoji];
+          return { ...m, reactions };
+        }));
+      }
     }
   }, [signer, myPubkey, relay]);
-
-  const handleDelete = useCallback(async (id: string) => {
-    if (!signer || !relay) return;
-    setPosts((prev) => prev.filter((m) => m.id !== id));
-    try {
-      const event = await signer.signEvent({ kind: 5, created_at: Math.floor(Date.now() / 1000), tags: [["e", id]], content: "" });
-      relay.publish(event);
-    } catch {}
-  }, [signer]);
-
-  const handleCopy = useCallback((text: string) => {
-    navigator.clipboard.writeText(text).then(() => showToast("Copied!"));
-  }, [showToast]);
 
   const myProfile = profiles[myPubkey] || {};
 
@@ -513,11 +494,8 @@ export default function FeedView({
             msg={msg}
             myPubkey={myPubkey}
             profiles={profiles}
-            bindingsRef={bindingsRef}
             onReact={handleReact}
             onReply={(m) => setComposeTarget(m)}
-            onDelete={handleDelete}
-            onCopy={handleCopy}
             replies={repliesFor(msg.id)}
           />
         ))}
