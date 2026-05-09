@@ -13,6 +13,7 @@ interface MessageInputProps {
   replyTo: string | null;
   setReplyTo: (v: string | null) => void;
   replyingTo: string;
+  replyingToContent?: string;
 }
 
 export default function MessageInput({
@@ -25,6 +26,7 @@ export default function MessageInput({
   replyTo,
   setReplyTo,
   replyingTo,
+  replyingToContent,
 }: MessageInputProps) {
   const [showEmoji, setShowEmoji] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -49,7 +51,12 @@ export default function MessageInput({
     <>
       {replyTo && (
         <div className="px-4 py-1.5 flex items-center gap-2 text-xs" style={{ backgroundColor: "var(--surface)", borderTop: "1px solid var(--border)" }}>
-          <span style={{ color: "var(--muted)" }}>Replying to <strong>{replyingTo}</strong></span>
+          <div className="flex-1 min-w-0">
+            <span style={{ color: "var(--muted)" }}>Replying to <strong style={{ color: "var(--text)" }}>{replyingTo}</strong></span>
+            {replyingToContent && (
+              <p className="truncate mt-0.5" style={{ color: "var(--muted)", maxWidth: "300px" }}>{replyingToContent}</p>
+            )}
+          </div>
           <button
             onClick={() => setReplyTo(null)}
             className="ml-auto w-8 h-8 rounded-full flex items-center justify-center shrink-0 active:opacity-60"

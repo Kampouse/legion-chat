@@ -608,6 +608,7 @@ function ChatApp() {
               replyTo={replyTo ? replyTo.id : null}
               setReplyTo={() => setReplyTo(null)}
               replyingTo={replyTo ? replyTo.sender : ""}
+              replyingToContent={replyTo ? replyTo.content : undefined}
             />
           </div>
         )}

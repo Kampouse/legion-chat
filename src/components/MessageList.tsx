@@ -343,9 +343,19 @@ export default function MessageList({
                           }}
                         >
                           <span className="font-semibold" style={{ color: "var(--text)" }}>{msg.replyToSender || "unknown"}</span>
-                          {msg.replyToContent && (
-                            <span className="ml-1 truncate inline-block max-w-[200px] align-bottom" style={{ color: "var(--muted)" }}>{msg.replyToContent.length > 60 ? msg.replyToContent.slice(0, 60) + "..." : msg.replyToContent}</span>
-                          )}
+                          {msg.replyToContent && (() => {
+                            const imgMatch = msg.replyToContent.match(/(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|svg|avif)(\?.*)?)\s*$/i);
+                            if (imgMatch) {
+                              const textContent = msg.replyToContent.replace(imgMatch[0], "").trim();
+                              return (
+                                <span className="ml-1">
+                                  {textContent && <span className="truncate inline-block max-w-[120px] align-bottom">{textContent.length > 40 ? textContent.slice(0, 40) + "..." : textContent} </span>}
+                                  <img src={imgMatch[1]} alt="" className="inline-block max-h-[40px] max-w-[60px] rounded object-cover align-middle ml-1" style={{ border: "1px solid var(--border)" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                                </span>
+                              );
+                            }
+                            return <span className="ml-1 truncate inline-block max-w-[200px] align-bottom" style={{ color: "var(--muted)" }}>{msg.replyToContent.length > 60 ? msg.replyToContent.slice(0, 60) + "..." : msg.replyToContent}</span>;
+                          })()}
                         </div>
                       )}
                       {q ? <>{highlight(msg.content)}</> : <ParsedContent content={msg.content} />}
