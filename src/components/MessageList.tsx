@@ -204,7 +204,6 @@ interface MessageListProps {
   onCopy: (text: string) => void;
   loading?: boolean;
   searchQuery?: string;
-  typingUsers?: string[];
 }
 
 export default function MessageList({
@@ -224,7 +223,6 @@ export default function MessageList({
   onCopy,
   loading = false,
   searchQuery = "",
-  typingUsers = [],
 }: MessageListProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -495,20 +493,6 @@ export default function MessageList({
             </Fragment>
           );
         })}
-
-        {/* Typing indicator */}
-        {typingUsers.length > 0 && (
-          <div className="flex items-center gap-2 px-1 py-1 mt-1">
-            <div className="flex gap-1">
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "var(--muted)", animationDelay: "0ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "var(--muted)", animationDelay: "150ms" }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "var(--muted)", animationDelay: "300ms" }} />
-            </div>
-            <span className="text-[11px]" style={{ color: "var(--muted)" }}>
-              {typingUsers.join(", ")} {typingUsers.length === 1 ? "is" : "are"} typing...
-            </span>
-          </div>
-        )}
 
         <div ref={messagesEndRef} />
       </div>
