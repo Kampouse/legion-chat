@@ -73,6 +73,7 @@ interface MessageListProps {
   onReply: (msg: Message) => void;
   onDelete: (msgId: string) => void;
   loading?: boolean;
+  searchQuery?: string;
 }
 
 export default function MessageList({
@@ -89,6 +90,7 @@ export default function MessageList({
   onReply,
   onDelete,
   loading = false,
+  searchQuery = "",
 }: MessageListProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -105,22 +107,43 @@ export default function MessageList({
     setSwipeOffset({});
   }, []);
 
+  // Search: filter + highlight
+  const q = searchQuery.toLowerCase().trim();
+  const filtered = q
+    ? messages.filter((m) => m.content.toLowerCase().includes(q) || (m.sender || "").toLowerCase().includes(q))
+    : messages;
+
+  const highlight = useCallback((text: string): React.ReactNode => {
+    if (!q) return text;
+    const idx = text.toLowerCase().indexOf(q);
+    if (idx === -1) return text;
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark style={{ backgroundColor: "var(--accent)", color: "#000", borderRadius: "2px", padding: "0 1px" }}>{text.slice(idx, idx + q.length)}</mark>
+        {highlight(text.slice(idx + q.length))}
+      </>
+    );
+  }, [q]);
+
   return (
     <>
       <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-1 relative z-10">
-        {messages.length === 0 && (
+        {filtered.length === 0 && (
           <div className="text-center py-12">
             {loading ? (
               <>
                 <div className="animate-pulse text-2xl mb-3">💬</div>
                 <p className="text-sm" style={{ color: "var(--muted)" }}>Loading messages...</p>
               </>
+            ) : q ? (
+              <p className="text-sm" style={{ color: "var(--muted)" }}>No messages match "{searchQuery}"</p>
             ) : (
               <p className="text-sm" style={{ color: "var(--muted)" }}>No messages yet. Be the first to speak.</p>
             )}
           </div>
         )}
-        {messages.map((msg, i) => {
+        {filtered.map((msg, i) => {
           const mine = msg.pubkey === myPubkey;
           const profile = profiles[msg.pubkey];
           const nearName = msg.sender || msg.pubkey.slice(0, 8) + "...";
@@ -128,10 +151,9 @@ export default function MessageList({
           const showAvatar = !mine;
           const showSender = !mine;
 
-          const prev = i > 0 ? messages[i - 1] : undefined;
-
+          const prev = i > 0 ? filtered[i - 1] : undefined;
           const sameSender = !!(prev && prev.pubkey === msg.pubkey && msg.created_at - prev.created_at < 120);
-          const next = i < messages.length - 1 ? messages[i + 1] : undefined;
+          const next = i < filtered.length - 1 ? filtered[i + 1] : undefined;
           const nextSameSender = !!(next && next.pubkey === msg.pubkey && next.created_at - msg.created_at < 120);
           const isLastInGroup = sameSender && !nextSameSender;
 
@@ -273,7 +295,7 @@ export default function MessageList({
                           )}
                         </div>
                       )}
-                      <ParsedContent content={msg.content} />
+                      {q ? <>{highlight(msg.content)}</> : <ParsedContent content={msg.content} />}
                       {msg.failed && <span className="text-[9px] text-red-400 ml-1">(failed)</span>}
                       {isLastInGroup && (
                         <div className="text-right mt-0.5">

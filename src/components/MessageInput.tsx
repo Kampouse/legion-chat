@@ -1,4 +1,6 @@
+import { useState, useRef, useCallback } from "react";
 import type { ConnectionState } from "../lib/nostr";
+import EmojiPicker from "./EmojiPicker";
 
 interface MessageInputProps {
   input: string;
@@ -23,6 +25,25 @@ export default function MessageInput({
   setReplyTo,
   replyingTo,
 }: MessageInputProps) {
+  const [showEmoji, setShowEmoji] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  const insertEmoji = useCallback((emoji: string) => {
+    const el = taRef.current;
+    if (!el) { setInput(input + emoji); return; }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const before = input.slice(0, start);
+    const after = input.slice(end);
+    const next = before + emoji + after;
+    setInput(next);
+    // Restore cursor after React re-render
+    requestAnimationFrame(() => {
+      el.selectionStart = el.selectionEnd = start + emoji.length;
+      el.focus();
+    });
+  }, [input, setInput]);
+
   return (
     <>
       {replyTo && (
@@ -37,8 +58,29 @@ export default function MessageInput({
           </button>
         </div>
       )}
-      <div className="p-3 border-t flex items-end gap-2" style={{ borderColor: "var(--border)" }}>
+      <div className="p-3 border-t flex items-end gap-2 relative" style={{ borderColor: "var(--border)" }}>
+        {/* Emoji picker popup */}
+        {showEmoji && (
+          <EmojiPicker
+            onSelect={insertEmoji}
+            onClose={() => setShowEmoji(false)}
+          />
+        )}
+        {/* Emoji toggle */}
+        <button
+          onClick={() => setShowEmoji((v) => !v)}
+          className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-lg active:opacity-60 transition-opacity"
+          style={{
+            backgroundColor: showEmoji ? "var(--accent)" : "var(--surface)",
+            border: "1px solid var(--border)",
+            color: showEmoji ? "#000" : "var(--muted)",
+          }}
+          aria-label="Emoji picker"
+        >
+          😊
+        </button>
         <textarea
+          ref={taRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}

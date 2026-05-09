@@ -78,6 +78,10 @@ function ChatApp() {
   const lastSendRef = useRef(0);
   const SEND_COOLDOWN = 1500; // ms between sends
 
+  // Search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+
   // Toast
   const [toastMsg, setToastMsg] = useState("");
   const [toastKey, setToastKey] = useState(0);
@@ -422,6 +426,14 @@ function ChatApp() {
             <span className="font-semibold text-sm">Legion Chat</span>
             <div className="flex-1" />
             <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{accountId}</span>
+            <button
+              onClick={() => { setShowSearch((v) => !v); if (showSearch) setSearchQuery(""); }}
+              className="text-base px-2 py-1 rounded active:opacity-60"
+              style={{ color: showSearch ? "var(--accent)" : "var(--muted)" }}
+              title="Search messages"
+            >
+              🔍
+            </button>
             <button onClick={() => setShowSettings(true)} className="text-lg px-2 py-1 rounded" style={{ color: "var(--muted)" }}>⚙️</button>
           </div>
         </header>
@@ -448,6 +460,27 @@ function ChatApp() {
         )}
         {screen === "chat" && (
           <div className="flex flex-col w-full h-full max-w-3xl mx-auto" style={{ backgroundColor: "var(--bg)" }}>
+            {showSearch && (
+              <div className="px-4 py-2 flex items-center gap-2 border-b" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search messages..."
+                  autoFocus
+                  className="flex-1 px-3 py-2 rounded-lg text-sm"
+                  style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text)", outline: "none" }}
+                />
+                {searchQuery && (
+                  <span className="text-xs whitespace-nowrap" style={{ color: "var(--muted)" }}>
+                    {messages.filter((m) => {
+                      const q = searchQuery.toLowerCase();
+                      return m.content.toLowerCase().includes(q) || (m.sender || "").toLowerCase().includes(q);
+                    }).length} found
+                  </span>
+                )}
+              </div>
+            )}
             <MessageList
               messages={messages}
               myPubkey={myPubkey}
@@ -462,6 +495,7 @@ function ChatApp() {
               onReply={(msg) => setReplyTo({ id: msg.id, content: msg.content, sender: msg.sender || msg.pubkey.slice(0, 8) })}
               onDelete={handleDeleteMessage}
               loading={messagesLoading}
+              searchQuery={searchQuery}
             />
             {error && <div className="px-4 py-1.5 text-xs text-red-400 text-center">{error}</div>}
             <MessageInput
