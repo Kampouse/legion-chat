@@ -298,7 +298,11 @@ function ComposeModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col" style={{ backgroundColor: "var(--bg)", animation: "modalIn 0.2s ease" }}>
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center" style={{ animation: "sheetBgIn 0.15s ease" }}>
+      {/* Backdrop (click to close) */}
+      <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={onClose} />
+      {/* Dialog */}
+      <div className="relative flex flex-col w-full sm:max-w-lg sm:rounded-2xl sm:max-h-[85vh] h-full sm:h-auto" style={{ backgroundColor: "var(--bg)", animation: "modalIn 0.2s ease" }}>
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
         <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center active:opacity-60" style={{ color: "var(--text)" }}>
@@ -394,6 +398,7 @@ function ComposeModal({
         {charCount > 0 && (
           <span className="text-xs" style={{ color: overLimit ? "#ef4444" : "var(--muted)" }}>{charCount}/{charLimit}</span>
         )}
+      </div>
       </div>
     </div>
   );
@@ -682,6 +687,8 @@ export default function FeedView({
             replies={repliesFor(msg.id)}
           />
         ))}
+        {/* Bottom spacer so last post isn't clipped by FAB */}
+        <div className="h-20" />
       </div>
 
       {/* FAB */}
