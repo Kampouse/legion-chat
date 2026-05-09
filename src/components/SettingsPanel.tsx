@@ -2,7 +2,8 @@ import type { NostrProfile, NostrSigner, Relay, ConnectionState } from "../lib/n
 import type { Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
 import { CHANNEL_ID } from "../lib/constants";
-import { X } from "lucide-react";
+import { fetchNearSocialProfile } from "../lib/nostr";
+import { X, Download } from "lucide-react";
 
 interface SettingsPanelProps {
   showSettings: boolean;
@@ -159,6 +160,25 @@ export default function SettingsPanel({
                     }} className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-black" style={{ backgroundColor: "var(--accent)" }}>Save Profile</button>
                     <button onClick={() => setEditProfile(null)} className="px-4 py-2.5 rounded-lg text-sm" style={{ border: "1px solid var(--border)", color: "var(--muted)" }}>Cancel</button>
                   </div>
+                  {accountId && (
+                    <button onClick={async () => {
+                      showToast("Fetching NEAR Social...");
+                      const social = await fetchNearSocialProfile(accountId);
+                      if (!social) { showToast("No NEAR Social profile found"); return; }
+                      setEditProfile({
+                        name: social.name || editProfile.name || "",
+                        display_name: editProfile.display_name || "",
+                        picture: social.image || editProfile.picture || "",
+                        about: social.description || editProfile.about || "",
+                        nip05: editProfile.nip05 || "",
+                        website: editProfile.website || "",
+                      });
+                      showToast("Imported from NEAR Social");
+                    }} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-medium" style={{ border: "1px solid var(--border)", color: "var(--muted)", backgroundColor: "var(--surface)" }}>
+                      <Download size={13} />
+                      Sync from NEAR Social
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">

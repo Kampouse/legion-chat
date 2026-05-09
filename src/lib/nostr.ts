@@ -10,7 +10,7 @@ import {
   PrivateKeySigner,
   type NostrSigner,
 } from "@nostr-wot/signers";
-import { DEFAULT_RELAY } from "./constants";
+import { DEFAULT_RELAY, NEAR_RPC, NEAR_SOCIAL_CONTRACT } from "./constants";
 
 export type { Relay, NostrSigner };
 export { Nip07Signer, Nip46Signer, PrivateKeySigner };
@@ -126,6 +126,66 @@ export async function signProfileUpdate(signer: NostrSigner, profile: NostrProfi
     tags: [],
     content: JSON.stringify(profile),
   });
+}
+
+// ── NEAR Social profile fetch ──
+
+export interface NearSocialProfile {
+  name?: string;
+  image?: string; // ipfs_cid or url
+  description?: string;
+  backgroundImage?: string;
+}
+
+export async function fetchNearSocialProfile(accountId: string): Promise<NearSocialProfile | null> {
+  try {
+    const res = await fetch(NEAR_RPC, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "social",
+        method: "query",
+        params: {
+          request_type: "call_function",
+          finality: "final",
+          account_id: NEAR_SOCIAL_CONTRACT,
+          method_name: "get",
+          args_base64: btoa(JSON.stringify({ keys: [`${accountId}/profile/**`] })),
+        },
+      }),
+    });
+    const json = await res.json();
+    if (json.error) return null;
+    // Result is bytes array — parse it
+    const bytes = json.result?.result;
+    if (!bytes) return null;
+    const parsed = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes)));
+    const profile = parsed?.[accountId]?.profile;
+    if (!profile) return null;
+
+    // Build image URL from ipfs_cid if present
+    let imageUrl: string | undefined;
+    if (profile.image) {
+      if (typeof profile.image === "string") {
+        // Could be ipfs_cid or url
+        imageUrl = profile.image.startsWith("http")
+          ? profile.image
+          : `https://ipfs.near.social/ipfs/${profile.image}`;
+      } else if (profile.image.ipfs_cid) {
+        imageUrl = `https://ipfs.near.social/ipfs/${profile.image.ipfs_cid}`;
+      }
+    }
+
+    return {
+      name: profile.name || undefined,
+      image: imageUrl,
+      description: profile.description || undefined,
+      backgroundImage: profile.backgroundImage || undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function connectRelayAsync(
