@@ -184,6 +184,7 @@ function initials(name: string): string {
 // ── Long-press detection ──
 const LONG_PRESS_MS = 400;
 const LONG_PRESS_MOVE_THRESHOLD = 10;
+const SWIPE_THRESHOLD = 60; // px to trigger reply
 
 // ── Props ──
 
@@ -232,6 +233,12 @@ export default function MessageList({
   // ── Long-press refs (mobile context menu) ──
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStart = useRef<{ x: number; y: number } | null>(null);
+
+  // ── Swipe-to-reply state ──
+  const [swipeX, setSwipeX] = useState(0);
+  const [swipeMsgId, setSwipeMsgId] = useState<string | null>(null);
+  const swipeStart = useRef<{ x: number; y: number; msgId: string } | null>(null);
+  const swiping = useRef(false);
 
   // ── Message animation: track which IDs are "new" ──
   const prevIdSet = useRef<Set<string>>(new Set());
@@ -292,21 +299,46 @@ export default function MessageList({
     if (msg.pending) return;
     const t = e.touches[0];
     longPressStart.current = { x: t.clientX, y: t.clientY };
+    swipeStart.current = { x: t.clientX, y: t.clientY, msgId: msg.id };
+    swiping.current = false;
     longPressTimer.current = setTimeout(() => {
+      // Long press triggered — open bottom sheet
       setCtxMenu({ x: t.clientX, y: t.clientY, msg, isTouch: true });
       longPressStart.current = null;
+      swipeStart.current = null;
+      swiping.current = false;
+      setSwipeX(0);
+      setSwipeMsgId(null);
     }, LONG_PRESS_MS);
   }, [confirmDeleteId]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!longPressStart.current || !longPressTimer.current) return;
     const t = e.touches[0];
-    const dx = Math.abs(t.clientX - longPressStart.current.x);
-    const dy = Math.abs(t.clientY - longPressStart.current.y);
-    if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-      longPressStart.current = null;
+    // Check if we should cancel long-press
+    if (longPressStart.current && longPressTimer.current) {
+      const dx = Math.abs(t.clientX - longPressStart.current.x);
+      const dy = Math.abs(t.clientY - longPressStart.current.y);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+        longPressStart.current = null;
+      }
+    }
+    // Swipe-to-reply tracking
+    if (swipeStart.current) {
+      const dx = t.clientX - swipeStart.current.x;
+      const dy = Math.abs(t.clientY - swipeStart.current.y);
+      // Only trigger on horizontal right-swipe, not vertical scroll
+      if (dx > 20 && dx > dy * 1.5) {
+        swiping.current = true;
+        setSwipeMsgId(swipeStart.current.msgId);
+        setSwipeX(Math.min(dx * 0.6, 100)); // dampen for feel
+      } else if (dx < -10) {
+        // Swiped left — cancel
+        swiping.current = false;
+        setSwipeX(0);
+        setSwipeMsgId(null);
+      }
     }
   }, []);
 
@@ -316,7 +348,19 @@ export default function MessageList({
       longPressTimer.current = null;
     }
     longPressStart.current = null;
-  }, []);
+    // Check if swipe passed threshold → trigger reply
+    if (swiping.current && swipeStart.current) {
+      const msgId = swipeStart.current.msgId;
+      if (swipeX >= SWIPE_THRESHOLD) {
+        const msg = messages.find((m) => m.id === msgId);
+        if (msg) onReply(msg);
+      }
+    }
+    swipeStart.current = null;
+    swiping.current = false;
+    setSwipeX(0);
+    setSwipeMsgId(null);
+  }, [swipeX, messages, onReply]);
 
   return (
     <>
@@ -361,13 +405,24 @@ export default function MessageList({
                   <div className="flex-1 h-px" style={{ backgroundColor: "var(--border)" }} />
                 </div>
               )}
-              <div
-                className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} relative ${isNew ? "msg-slide-in" : ""}`}
-                onContextMenu={(e) => { if (!msg.pending) openContextMenu(e, msg); }}
-                onTouchStart={(e) => handleTouchStart(e, msg)}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-              >
+              <div className="relative">
+                {/* Reply hint behind swipe */}
+                {swipeMsgId === msg.id && swipeX > 0 && (
+                  <div
+                    className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center z-0"
+                    style={{ opacity: swipeX / SWIPE_THRESHOLD, color: "var(--accent)" }}
+                  >
+                    <Reply size={20} />
+                  </div>
+                )}
+                <div
+                  className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${sameSender ? "mt-0.5" : "mt-3"} relative ${isNew ? "msg-slide-in" : ""}`}
+                  style={swipeMsgId === msg.id ? { transform: `translateX(${swipeX}px)`, transition: swipeX === 0 ? "transform 0.2s ease" : "none" } : undefined}
+                  onContextMenu={(e) => { if (!msg.pending) openContextMenu(e, msg); }}
+                  onTouchStart={(e) => handleTouchStart(e, msg)}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                >
                 {!mine && (
                   <div className="w-8 shrink-0 flex items-center justify-center">
                     {!sameSender && (
@@ -439,6 +494,7 @@ export default function MessageList({
                     </span>
                   )}
                 </div>
+              </div>
               </div>
               {confirmDeleteId === msg.id && (
                 <div
