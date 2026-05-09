@@ -637,7 +637,7 @@ function ChatApp() {
                 })()}
               </div>
             )}
-            {activeTab === "feed" ? (
+            <div style={{ display: activeTab === "feed" ? "flex" : "none", flexDirection: "column", height: "100%" }}>
               <FeedView
                 signer={signer}
                 myPubkey={myPubkey}
@@ -647,8 +647,8 @@ function ChatApp() {
                 connState={connState}
                 showToast={showToast}
               />
-            ) : (
-              <>
+            </div>
+            <div style={{ display: activeTab === "chat" ? "contents" : "none" }}>
             <MessageList
               messages={messages}
               myPubkey={myPubkey}
@@ -680,8 +680,7 @@ function ChatApp() {
               replyingTo={replyTo ? replyTo.sender : ""}
               replyingToContent={replyTo ? replyTo.content : undefined}
             />
-              </>
-            )}
+            </div>
           </div>
         )}
         <SettingsPanel
