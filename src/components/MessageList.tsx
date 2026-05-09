@@ -227,7 +227,7 @@ export default function MessageList({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // ── Context menu state ──
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msg: Message; isTouch: boolean } | null>(null);
 
   // ── Long-press refs (mobile context menu) ──
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -284,7 +284,7 @@ export default function MessageList({
   // ── Context menu handlers ──
   const openContextMenu = useCallback((e: React.MouseEvent, msg: Message) => {
     e.preventDefault();
-    setCtxMenu({ x: e.clientX, y: e.clientY, msg });
+    setCtxMenu({ x: e.clientX, y: e.clientY, msg, isTouch: false });
   }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent, msg: Message) => {
@@ -293,7 +293,7 @@ export default function MessageList({
     const t = e.touches[0];
     longPressStart.current = { x: t.clientX, y: t.clientY };
     longPressTimer.current = setTimeout(() => {
-      setCtxMenu({ x: t.clientX, y: t.clientY - 60, msg });
+      setCtxMenu({ x: t.clientX, y: t.clientY, msg, isTouch: true });
       longPressStart.current = null;
     }, LONG_PRESS_MS);
   }, [confirmDeleteId]);
@@ -512,6 +512,7 @@ export default function MessageList({
           y={ctxMenu.y}
           msg={ctxMenu.msg}
           myPubkey={myPubkey}
+          isTouch={ctxMenu.isTouch}
           onReply={onReply}
           onReact={onReact}
           onDelete={(id) => setConfirmDeleteId(id)}
