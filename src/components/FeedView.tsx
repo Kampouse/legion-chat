@@ -460,7 +460,7 @@ function PostCard({
             <div className="flex items-center justify-between mt-3" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-6">
               <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--muted)" }}>
-                <button onClick={() => onReply(msg)} className="active:opacity-60">
+                <button onClick={(e) => { e.stopPropagation(); onOpenThread(msg); }} className="active:opacity-60">
                   <MessageCircle size={16} />
                 </button>
                 {replies.length > 0 && (
@@ -668,13 +668,13 @@ function ThreadModal({
 
         {/* Reply input */}
         <div className="shrink-0 border-t px-4 py-3" style={{ borderColor: "var(--border)", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
-          {replyingTo.id !== rootPost.id && (
-            <div className="flex items-center gap-1 mb-2 text-xs" style={{ color: "var(--muted)" }}>
-              <span>Replying to</span>
-              <span style={{ color: "var(--accent)" }}>@{replyName}</span>
-              <button onClick={() => setReplyingTo(rootPost)} className="ml-1" style={{ color: "var(--muted)" }}>✕</button>
-            </div>
-          )}
+          <div className="flex items-center gap-1 mb-2 text-xs" style={{ color: "var(--muted)" }}>
+            <span>Replying to</span>
+            <span style={{ color: "var(--accent)" }}>@{replyName}</span>
+            {replyingTo.id !== rootPost.id && (
+              <button onClick={() => setReplyingTo(rootPost)} className="ml-1 underline" style={{ color: "var(--muted)" }}>switch to root</button>
+            )}
+          </div>
           <div className="flex gap-3 items-end">
             <Avatar profile={myProfile} name={myProfile.display_name || myProfile.name || "Me"} size={32} />
             <div className="flex-1 flex items-end gap-2">
