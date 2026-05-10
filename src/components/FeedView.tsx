@@ -539,22 +539,25 @@ function ReplyTree({
         const isLast = idx === children.length - 1;
         const hasChildren = depth + 1 < maxDepth && replies.some((r) => r.replyToId === reply.id);
         const avatarSize = depth === 0 ? 32 : 28;
+        const colW = avatarSize + 20;
 
         return (
           <div key={reply.id} className="flex" style={{ paddingLeft: `${depth * 28 + 8}px` }}>
-            {/* Branch connector: vertical trunk + horizontal arm to avatar */}
-            <div className="flex flex-col items-center shrink-0" style={{ width: `${avatarSize + 20}px` }}>
-              {/* Top half of trunk (from parent down to branch point) */}
+            {/* Branch connector column */}
+            <div className="flex flex-col items-center shrink-0" style={{ width: `${colW}px` }}>
+              {/* Top half trunk */}
               <div className="w-px flex-1" style={{ backgroundColor: "var(--border)" }} />
-              {/* Horizontal arm + avatar row */}
-              <div className="shrink-0 flex items-center" style={{ backgroundColor: "var(--bg)" }}>
-                {/* Horizontal stub connecting trunk to avatar */}
-                <div className="h-px" style={{ width: "10px", backgroundColor: "var(--border)" }} />
-                <Avatar profile={rp} name={rn} size={avatarSize} />
-                {/* Right padding to match column width */}
+              {/* Diagonal branch + avatar row */}
+              <div className="shrink-0 flex items-center relative" style={{ height: `${avatarSize}px`, width: `${colW}px` }}>
+                {/* SVG diagonal from trunk center-left down to avatar center */}
+                <svg className="absolute inset-0" width={colW} height={avatarSize} style={{ overflow: "visible" }}>
+                  <line x1={colW / 2} y1="0" x2={10} y2={avatarSize / 2} stroke="var(--border)" strokeWidth="1" />
+                </svg>
+                {/* Left spacer (trunk side) */}
                 <div style={{ width: "10px" }} />
+                <Avatar profile={rp} name={rn} size={avatarSize} />
               </div>
-              {/* Bottom half of trunk (continues to next sibling) */}
+              {/* Bottom half trunk */}
               <div className="w-px flex-1" style={{ backgroundColor: (!isLast || hasChildren) ? "var(--border)" : "transparent" }} />
             </div>
             {/* Content */}
