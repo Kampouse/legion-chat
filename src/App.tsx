@@ -139,17 +139,7 @@ function ChatApp() {
       if (savedSigner) {
         try {
           const parsed = JSON.parse(savedSigner);
-          if (parsed.type === "bunker" && parsed.uri) {
-            const s = await createNip46Signer(
-              parsed.uri,
-              (url: string) => { window.open(url, "_blank"); },
-              parsed.clientNsec,
-            );
-            const pk = await s.getPublicKey();
-            if (pk === existing.npub) {
-              setSigner(s); setSignerType("bunker"); setScreen("chat"); return;
-            }
-          } else if (parsed.type === "local" && parsed.nsec) {
+          if (parsed.type === "local" && parsed.nsec) {
             const s = createPrivateKeySigner(parsed.nsec);
             const pk = await s.getPublicKey();
             if (pk === existing.npub) {
@@ -157,6 +147,8 @@ function ChatApp() {
               setSigner(s); setSignerType("local"); setScreen("chat"); return;
             }
           }
+          // Note: bunker restore skipped — fromBunkerUri sends 'connect' RPC
+          // which Primal ignores, causing timeout. User re-pairs via nostrconnect instead.
         } catch (e: any) {
           console.warn("Failed to restore signer:", e.message);
         }
@@ -355,16 +347,13 @@ function ChatApp() {
     if (!accountId) return;
     setScreen("binding"); setError("");
     try {
-      const allBindings = (await fetchAllBindingsRefresh()).bindings;
-      for (const [existingId, binding] of Object.entries(allBindings)) {
-        if (binding.npub === npub && existingId !== accountId) {
-          setError(`This Nostr key is already bound to ${existingId}`);
-          setScreen("bind");
-          return;
-        }
+      // Skip on-chain tx if this pubkey is already bound to this NEAR account
+      const existing = await fetchBinding(accountId);
+      const alreadyBound = existing && existing.npub === npub;
+      if (!alreadyBound) {
+        const proof = await signChallenge(s, `legion:${accountId}`);
+        await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
       }
-      const proof = await signChallenge(s, `legion:${accountId}`);
-      await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
       const signerData = mode === "bunker"
         ? { type: "bunker", uri: bunkerUri, ...(s instanceof Object && "exportClientNsec" in s ? { clientNsec: (s as any).exportClientNsec() } : {}) }
         : mode === "local" ? { type: "local", nsec } : { type: "extension" };
@@ -405,28 +394,6 @@ function ChatApp() {
     setConnectHandle(handle);
     setConnectUri(handle.uri);
     setScreen("connect-qr");
-
-    // Debug: raw WS on nrs.primal.net to see if bunker responds to our requests
-    const debugWs2 = new WebSocket("wss://nrs.primal.net");
-    const debugSubId2 = "rsp_" + Math.random().toString(36).slice(2, 8);
-    const clientPk2 = handle.clientPubkey;
-    debugWs2.onopen = () => {
-      debugWs2.send(JSON.stringify(["REQ", debugSubId2, { kinds: [24133], "#p": [clientPk2] }]));
-      console.log("[NIP-46-DEBUG] response monitor on nrs.primal.net for p-tag:", clientPk2.slice(0, 12));
-    };
-    debugWs2.onmessage = (ev: MessageEvent) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg[0] === "EVENT") {
-          const evt = msg[2];
-          console.log("[NIP-46-DEBUG] response event:", {
-            from: evt.pubkey?.slice(0, 12),
-            pTags: evt.tags?.filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1]?.slice(0, 12)),
-            contentLen: evt.content?.length,
-          });
-        }
-      } catch {}
-    };
 
     // Mobile: when app comes back to foreground after signer app,
     // the WS subscription died during background. Reopen it so new events arrive.
@@ -479,16 +446,13 @@ function ChatApp() {
     if (!accountId) return;
     setScreen("binding"); setError("");
     try {
-      const allBindings = (await fetchAllBindingsRefresh()).bindings;
-      for (const [existingId, binding] of Object.entries(allBindings)) {
-        if (binding.npub === npub && existingId !== accountId) {
-          setError(`This Nostr key is already bound to ${existingId}`);
-          setScreen("bind");
-          return;
-        }
+      // Skip on-chain tx if this pubkey is already bound to this NEAR account
+      const existing = await fetchBinding(accountId);
+      const alreadyBound = existing && existing.npub === npub;
+      if (!alreadyBound) {
+        const proof = await signChallenge(s, `legion:${accountId}`);
+        await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
       }
-      const proof = await signChallenge(s, `legion:${accountId}`);
-      await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
       // Persist as bunker type with client nsec for reconnection
       localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
         type: "bunker",
