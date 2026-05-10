@@ -793,32 +793,44 @@ export default function FeedView({
 
   const handleReact = useCallback(async (msgId: string, msgPubkey: string, emoji: string) => {
     if (!signer || !relay) return;
+    // Read current state via ref-style approach: use a snapshot
     let alreadyLiked = false;
     setPosts((prev) => {
       const post = prev.find((m) => m.id === msgId);
       alreadyLiked = (post?.reactions?.[emoji] || []).includes(myPubkey);
-      return prev;
+      // If already liked, remove; otherwise add
+      if (alreadyLiked) {
+        return prev.map((m) => {
+          if (m.id !== msgId) return m;
+          const reactions = { ...(m.reactions || {}) };
+          reactions[emoji] = (reactions[emoji] || []).filter((pk) => pk !== myPubkey);
+          if (reactions[emoji].length === 0) delete reactions[emoji];
+          return { ...m, reactions };
+        });
+      } else {
+        return prev.map((m) => {
+          if (m.id !== msgId) return m;
+          const reactions = { ...(m.reactions || {}) };
+          reactions[emoji] = [...(reactions[emoji] || []), myPubkey];
+          return { ...m, reactions };
+        });
+      }
     });
+    // Now publish the corresponding event
     if (alreadyLiked) {
-      setPosts((prev) => prev.map((m) => {
-        if (m.id !== msgId) return m;
-        const reactions = { ...(m.reactions || {}) };
-        reactions[emoji] = (reactions[emoji] || []).filter((pk) => pk !== myPubkey);
-        if (reactions[emoji].length === 0) delete reactions[emoji];
-        return { ...m, reactions };
-      }));
       try {
         const event = await signer.signEvent({ kind: 7, created_at: Math.floor(Date.now() / 1000), tags: [["e", msgId], ["p", msgPubkey]], content: "-" });
         await relay.publish(event);
       } catch {
+        // Revert: re-add like
         setPosts((prev) => prev.map((m) => { if (m.id !== msgId) return m; const r = { ...(m.reactions || {}) }; r[emoji] = [...(r[emoji] || []), myPubkey]; return { ...m, reactions: r }; }));
       }
     } else {
-      setPosts((prev) => prev.map((m) => { if (m.id !== msgId) return m; const r = { ...(m.reactions || {}) }; r[emoji] = [...(r[emoji] || []), myPubkey]; return { ...m, reactions: r }; }));
       try {
         const event = await signReaction(signer, msgId, msgPubkey, emoji);
         await relay.publish(event);
       } catch {
+        // Revert: remove like
         setPosts((prev) => prev.map((m) => { if (m.id !== msgId) return m; const r = { ...(m.reactions || {}) }; r[emoji] = (r[emoji] || []).filter((pk) => pk !== myPubkey); if (r[emoji].length === 0) delete r[emoji]; return { ...m, reactions: r }; }));
       }
     }
