@@ -528,28 +528,29 @@ function ReplyTree({
   const children = replies.filter((r) => r.replyToId === parentId);
   if (children.length === 0) return null;
 
+  const lineX = depth * 32 + 28;
+
   return (
-    <>
+    // Wrap all children + subtrees in one relative container so the trunk line
+    // spans continuously through every sibling and their descendants
+    <div className="relative">
+      {/* Trunk line for this depth — spans full height of all children */}
+      <div className="absolute top-0 bottom-0 w-px" style={{ left: `${lineX}px`, backgroundColor: "var(--border)" }} />
       {children.map((reply, idx) => {
         const rp = profiles[reply.pubkey];
         const rn = reply.sender || rp?.display_name || rp?.name || reply.pubkey.slice(0, 12) + "...";
         const heartReactions = (reply.reactions || {})["❤️"] || [];
         const liked = heartReactions.includes(myPubkey);
         const { text: replyContent } = parseImage(reply.content);
-        const isLast = idx === children.length - 1;
         const hasChildren = depth + 1 < maxDepth && replies.some((r) => r.replyToId === reply.id);
         const avatarSize = depth === 0 ? 32 : 28;
 
         return (
-          <div key={reply.id} className="relative" style={{ paddingLeft: `${depth * 32 + 16}px` }}>
-            {/* Left vertical line — runs full height behind everything */}
-            {(!isLast || hasChildren) && (
-              <div className="absolute top-0 bottom-0 w-px" style={{ left: `${depth * 32 + 28}px`, backgroundColor: "var(--border)" }} />
-            )}
-            {/* Avatar + content */}
-            <div className="flex gap-3 py-1.5 relative">
+          <div key={reply.id}>
+            {/* Avatar + content row */}
+            <div className="flex gap-3 py-1.5 relative" style={{ paddingLeft: `${depth * 32 + 16}px` }}>
+              {/* Avatar with bg circle to punch hole in trunk line */}
               <div className="shrink-0 rounded-full relative" style={{ width: `${avatarSize}px`, height: `${avatarSize}px`, zIndex: 1 }}>
-                {/* Background circle hides the line behind avatar */}
                 <div className="absolute inset-0 rounded-full" style={{ backgroundColor: "var(--bg)" }} />
                 <div className="relative">
                   <Avatar profile={rp} name={rn} size={avatarSize} />
@@ -576,27 +577,24 @@ function ReplyTree({
                 </div>
               </div>
             </div>
+            {/* Nested children immediately after this reply */}
+            {hasChildren && (
+              <ReplyTree
+                parentId={reply.id}
+                replies={replies}
+                profiles={profiles}
+                myPubkey={myPubkey}
+                allPosts={allPosts}
+                depth={depth + 1}
+                maxDepth={maxDepth}
+                onReply={onReply}
+                onReact={onReact}
+              />
+            )}
           </div>
         );
       })}
-      {/* Nested children */}
-      {children.map((reply) => (
-        depth + 1 < maxDepth && replies.some((r) => r.replyToId === reply.id) ? (
-          <ReplyTree
-            key={`sub-${reply.id}`}
-            parentId={reply.id}
-            replies={replies}
-            profiles={profiles}
-            myPubkey={myPubkey}
-            allPosts={allPosts}
-            depth={depth + 1}
-            maxDepth={maxDepth}
-            onReply={onReply}
-            onReact={onReact}
-          />
-        ) : null
-      ))}
-    </>
+    </div>
   );
 }
 
