@@ -527,7 +527,6 @@ function ReplyTree({
 }) {
   const children = replies.filter((r) => r.replyToId === parentId);
   if (children.length === 0) return null;
-  const lineLeft = 36 + depth * 28; // align with center of parent avatar column
 
   return (
     <>
@@ -538,38 +537,41 @@ function ReplyTree({
         const liked = heartReactions.includes(myPubkey);
         const { text: replyContent } = parseImage(reply.content);
         const isLast = idx === children.length - 1;
+        const hasChildren = depth + 1 < maxDepth && replies.some((r) => r.replyToId === reply.id);
         const avatarSize = depth === 0 ? 32 : 28;
 
         return (
-          <div key={reply.id} className="relative" style={{ paddingLeft: `${depth * 28 + 4}px` }}>
-            {/* Vertical line from parent down to this reply */}
-            <div className="absolute top-0 w-px" style={{ left: `${lineLeft}px`, height: "50%", backgroundColor: "var(--border)" }} />
-            {/* Horizontal branch connecting vertical line to this reply */}
-            <div className="absolute w-3 h-px" style={{ left: `${lineLeft}px`, top: "50%", backgroundColor: "var(--border)" }} />
-            {/* Vertical line continues down to next sibling or children */}
-            {!isLast && <div className="absolute w-px" style={{ left: `${lineLeft}px`, top: "50%", bottom: 0, backgroundColor: "var(--border)" }} />}
-            {/* Avatar + content row */}
-            <div className="flex gap-3 py-2 pr-4">
-              <Avatar profile={rp} name={rn} size={avatarSize} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
-                  <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
-                </div>
-                {replyContent && (
-                  <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
-                    {renderContent(replyContent, profiles, allPosts)}
-                  </p>
-                )}
-                <div className="flex items-center gap-5 mt-2">
-                  <button onClick={() => onReply(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
-                    <MessageCircle size={14} />
-                  </button>
-                  <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
-                    <Heart size={14} fill={liked ? "currentColor" : "none"} />
-                    {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
-                  </button>
-                </div>
+          <div key={reply.id} className="flex" style={{ paddingLeft: `${depth * 28 + 4}px` }}>
+            {/* Avatar column with line segments */}
+            <div className="flex flex-col items-center shrink-0" style={{ width: `${avatarSize + 24}px` }}>
+              {/* Line above avatar: always visible (connects from parent) */}
+              <div className="w-px flex-1" style={{ backgroundColor: "var(--border)" }} />
+              {/* Avatar circle with bg to hide line behind it */}
+              <div className="shrink-0 rounded-full" style={{ padding: "0 12px", backgroundColor: "var(--bg)" }}>
+                <Avatar profile={rp} name={rn} size={avatarSize} />
+              </div>
+              {/* Line below avatar: continues if more siblings or children below */}
+              <div className="w-px flex-1" style={{ backgroundColor: (!isLast || hasChildren) ? "var(--border)" : "transparent" }} />
+            </div>
+            {/* Content */}
+            <div className="flex-1 min-w-0 py-2 pr-4">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
+              </div>
+              {replyContent && (
+                <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
+                  {renderContent(replyContent, profiles, allPosts)}
+                </p>
+              )}
+              <div className="flex items-center gap-5 mt-2">
+                <button onClick={() => onReply(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                  <MessageCircle size={14} />
+                </button>
+                <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
+                  <Heart size={14} fill={liked ? "currentColor" : "none"} />
+                  {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
+                </button>
               </div>
             </div>
           </div>
@@ -695,11 +697,11 @@ function ThreadModal({
         {/* Scrollable content */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
           {/* Root post */}
-          <div className="px-4 pt-3 pb-2">
+          <div className="px-4 pt-3">
             <div className="flex gap-3">
               <div className="flex flex-col items-center shrink-0">
                 <Avatar profile={rootProfile} name={rootName} size={40} />
-                {replies.length > 0 && <div className="flex-1 w-px mt-2" style={{ backgroundColor: "var(--border)" }} />}
+                {replies.length > 0 && <div className="flex-1 w-px" style={{ backgroundColor: "var(--border)" }} />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
