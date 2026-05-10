@@ -532,9 +532,24 @@ function ThreadModal({
   const [replyingTo, setReplyingTo] = useState<Message>(rootPost);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  const replies = allPosts
-    .filter((p) => p.replyToId === rootPost.id)
-    .sort((a, b) => a.created_at - b.created_at);
+  // Collect all replies in the thread (not just direct children)
+  const threadIds = new Set<string>([rootPost.id]);
+  const replies: Message[] = [];
+  // Multiple passes to pick up nested replies
+  const remaining = allPosts.filter((p) => p.replyToId);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      if (threadIds.has(remaining[i].replyToId!)) {
+        threadIds.add(remaining[i].id);
+        replies.push(remaining[i]);
+        remaining.splice(i, 1);
+        changed = true;
+      }
+    }
+  }
+  replies.sort((a, b) => a.created_at - b.created_at);
 
   const rootProfile = profiles[rootPost.pubkey];
   const rootName = rootPost.sender || rootProfile?.display_name || rootProfile?.name || rootPost.pubkey.slice(0, 12) + "...";
@@ -550,12 +565,12 @@ function ThreadModal({
     if (!replyText.trim() || !signer || !relay) return;
     setSending(true);
     try {
-      const event = await signChannelMessage(signer, replyText.trim(), FEED_CHANNEL_ID, { id: replyingTo.id });
+      const event = await signChannelMessage(signer, replyText.trim(), FEED_CHANNEL_ID, { id: rootPost.id });
       await publishWithAck(relay, event);
       onReply({
         id: event.id, pubkey: myPubkey, content: replyText.trim(),
         created_at: event.created_at, sender: myProfile.display_name || myProfile.name || "You",
-        replyToId: replyingTo.id,
+        replyToId: rootPost.id,
       });
       setReplyText("");
       showToast("Reply sent!");
