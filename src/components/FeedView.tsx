@@ -511,6 +511,80 @@ function PostCard({
   );
 }
 
+// ── Reply Tree (recursive, max depth) ──
+function ReplyTree({
+  parentId, replies, profiles, myPubkey, allPosts, depth, maxDepth, onReply, onReact,
+}: {
+  parentId: string;
+  replies: Message[];
+  profiles: Record<string, Profile>;
+  myPubkey: string;
+  allPosts: Message[];
+  depth: number;
+  maxDepth: number;
+  onReply: (msg: Message) => void;
+  onReact: (msgId: string, pubkey: string, emoji: string) => void;
+}) {
+  const children = replies.filter((r) => r.replyToId === parentId);
+  if (children.length === 0) return null;
+  const indent = Math.min(depth, maxDepth) * 20;
+
+  return (
+    <>
+      {children.map((reply) => {
+        const rp = profiles[reply.pubkey];
+        const rn = reply.sender || rp?.display_name || rp?.name || reply.pubkey.slice(0, 12) + "...";
+        const heartReactions = (reply.reactions || {})["❤️"] || [];
+        const liked = heartReactions.includes(myPubkey);
+        const { text: replyContent } = parseImage(reply.content);
+        return (
+          <div key={reply.id} style={{ paddingLeft: `${indent}px` }}>
+            <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
+              <div className="flex gap-3">
+                <Avatar profile={rp} name={rn} size={depth === 0 ? 32 : 28} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
+                    <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
+                  </div>
+                  {replyContent && (
+                    <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
+                      {renderContent(replyContent, profiles, allPosts)}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-5 mt-2">
+                    <button onClick={() => onReply(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                      <MessageCircle size={14} />
+                    </button>
+                    <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
+                      <Heart size={14} fill={liked ? "currentColor" : "none"} />
+                      {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Recurse — stop at maxDepth */}
+            {depth + 1 < maxDepth && (
+              <ReplyTree
+                parentId={reply.id}
+                replies={replies}
+                profiles={profiles}
+                myPubkey={myPubkey}
+                allPosts={allPosts}
+                depth={depth + 1}
+                maxDepth={maxDepth}
+                onReply={onReply}
+                onReact={onReact}
+              />
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 // ── Thread Modal ──
 function ThreadModal({
   rootPost, allPosts, myPubkey, profiles, myProfile, signer, relay, onClose, onReply, onReact, showToast,
@@ -575,12 +649,12 @@ function ThreadModal({
     if (!replyText.trim() || !signer || !relay) return;
     setSending(true);
     try {
-      const event = await signChannelMessage(signer, replyText.trim(), FEED_CHANNEL_ID, { id: rootPost.id });
+      const event = await signChannelMessage(signer, replyText.trim(), FEED_CHANNEL_ID, { id: replyingTo.id });
       await publishWithAck(relay, event);
       onReply({
         id: event.id, pubkey: myPubkey, content: replyText.trim(),
         created_at: event.created_at, sender: myProfile.display_name || myProfile.name || "You",
-        replyToId: rootPost.id,
+        replyToId: replyingTo.id,
       });
       setReplyText("");
       showToast("Reply sent!");
@@ -655,40 +729,18 @@ function ThreadModal({
               <span className="text-sm" style={{ color: "var(--muted)" }}>No replies yet</span>
             </div>
           )}
-          {replies.map((reply) => {
-            const rp = profiles[reply.pubkey];
-            const rn = reply.sender || rp?.display_name || rp?.name || reply.pubkey.slice(0, 12) + "...";
-            const heartReactions = (reply.reactions || {})["❤️"] || [];
-            const liked = heartReactions.includes(myPubkey);
-            const { text: replyText } = parseImage(reply.content);
-            return (
-              <div key={reply.id} className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
-                <div className="flex gap-3">
-                  <Avatar profile={rp} name={rn} size={32} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
-                      <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
-                    </div>
-                    {replyText && (
-                      <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
-                        {renderContent(replyText, profiles, allPosts)}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-5 mt-2">
-                      <button onClick={() => setReplyingTo(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
-                        <MessageCircle size={14} />
-                      </button>
-                      <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
-                        <Heart size={14} fill={liked ? "currentColor" : "none"} />
-                        {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {/* Tree-structured replies */}
+          <ReplyTree
+            parentId={rootPost.id}
+            replies={replies}
+            profiles={profiles}
+            myPubkey={myPubkey}
+            allPosts={allPosts}
+            depth={0}
+            maxDepth={3}
+            onReply={(reply) => setReplyingTo(reply)}
+            onReact={onReact}
+          />
         </div>
 
         {/* Reply input */}
