@@ -1,7 +1,7 @@
 import { useMemo, Fragment, useState, useRef, useCallback, useEffect, type RefObject } from "react";
 import type { Message, Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
-import { Reply, Trash2, X, ChevronDown } from "lucide-react";
+import { Reply, ChevronDown } from "lucide-react";
 import ContextMenu from "./ContextMenu";
 
 // ── Content parsing with image embeds ──
@@ -20,7 +20,6 @@ const IMAGE_HOSTS = [
   /5rz7vjvewwhjk4pr62p473cslcpuihanwcl7pjyshl6vhqbjy2ya\.arweave\.net/i,
 ];
 // URLs that look like image pages (no extension but serve images)
-const IMAGE_PATH_HINTS = /\/(image|img|media|photo|pic|thumb|preview|attachment)\//i;
 
 function isImageUrl(url: string): boolean {
   if (IMAGE_EXTS.test(url)) return true;
@@ -132,7 +131,7 @@ function ParsedContent({ content }: { content: string }) {
 
 // ── Reaction display ──
 
-function ReactionBar({ reactions, myPubkey }: { reactions?: Record<string, string[]>; myPubkey: string; mine: boolean }) {
+function ReactionBar({ reactions, myPubkey }: { reactions?: Record<string, string[]>; myPubkey: string }) {
   if (!reactions) return null;
   const entries = Object.entries(reactions).filter(([, pks]) => pks.length > 0);
   if (entries.length === 0) return null;

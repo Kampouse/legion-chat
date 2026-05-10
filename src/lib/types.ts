@@ -20,4 +20,5 @@ export interface Profile {
   display_name?: string;
   about?: string;
   nip05?: string;
+  website?: string;
 }

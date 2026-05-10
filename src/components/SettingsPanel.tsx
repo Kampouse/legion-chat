@@ -1,6 +1,5 @@
 import type { NostrProfile, NostrSigner, Relay, ConnectionState } from "../lib/nostr";
 import type { Profile } from "../lib/types";
-import type { BindingCache } from "../lib/binding";
 import { CHANNEL_ID } from "../lib/constants";
 import { fetchNearSocialProfile } from "../lib/nostr";
 import { X, Download } from "lucide-react";

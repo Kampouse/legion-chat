@@ -9,10 +9,11 @@ import {
   Nip46Signer,
   PrivateKeySigner,
   type NostrSigner,
+  type NostrConnectHandle,
 } from "@nostr-wot/signers";
-import { DEFAULT_RELAY, NEAR_RPC, NEAR_SOCIAL_CONTRACT } from "./constants";
+import { DEFAULT_RELAY, FALLBACK_RELAYS, NEAR_RPC, NEAR_SOCIAL_CONTRACT } from "./constants";
 
-export type { Relay, NostrSigner };
+export type { Relay, NostrSigner, NostrConnectHandle };
 export { Nip07Signer, Nip46Signer, PrivateKeySigner };
 
 // ── Connection states ──
@@ -36,8 +37,33 @@ export function createPrivateKeySigner(nsec: string): NostrSigner {
 export async function createNip46Signer(
   bunkerUri: string,
   onAuthChallenge?: (url: string) => void,
+  clientSecretKey?: string,
 ): Promise<NostrSigner> {
-  return Nip46Signer.fromBunkerUri(bunkerUri, { onAuthChallenge });
+  const opts: any = {};
+  if (onAuthChallenge) opts.onAuthChallenge = onAuthChallenge;
+  if (clientSecretKey) opts.clientSecretKey = clientSecretKey;
+  return Nip46Signer.fromBunkerUri(bunkerUri, opts);
+}
+
+// ── NIP-46 client-initiated (nostrconnect://) flow ──
+
+export function startNostrConnectFlow(opts?: {
+  relay?: string;
+  onAuthChallenge?: (url: string) => void;
+}): NostrConnectHandle {
+  const primary = opts?.relay || DEFAULT_RELAY;
+  const relays = [primary, ...FALLBACK_RELAYS.filter(r => r !== primary)];
+  console.log("[NIP-46] listening on relays:", relays);
+  return Nip46Signer.startNostrConnect({
+    relays,
+    metadata: { name: "Legion Chat" },
+    onAuthChallenge: opts?.onAuthChallenge,
+  });
+}
+
+export function isMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
 // ── Generate local keypair ──
@@ -309,7 +335,7 @@ export interface ReconnectHandle {
 export function connectRelayWithReconnect(
   url: string,
   onStateChange: (state: ConnectionState) => void,
-  reconnectTrigger: number,
+  _reconnectTrigger: number,
   onConnect?: (relay: Relay) => void,
 ): ReconnectHandle {
   const MAX_BACKOFF = 30_000; // 30 s

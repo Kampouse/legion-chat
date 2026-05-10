@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import { isMobile } from "../lib/nostr";
 
 export function LoginScreen({ onSignIn }: { onSignIn: () => void }) {
   return (
@@ -31,13 +33,15 @@ export function NoSbtScreen({ accountId, onSignOut }: { accountId: string; onSig
   );
 }
 
-export function BindScreen({ hasExtension, nsec, bunkerUri, relayUrl, error, onNsecChange, onBunkerUriChange, onRelayChange, onGenerate, onBindExtension, onBindBunker, onBindLocal, onSignOut }: {
+export function BindScreen({ hasExtension, nsec, bunkerUri, relayUrl, error, onNsecChange, onBunkerUriChange, onRelayChange, onGenerate, onBindExtension, onBindBunker, onBindLocal, onStartConnect, onSignOut }: {
   hasExtension: boolean; nsec: string; bunkerUri: string; relayUrl: string; error: string;
   onNsecChange: (v: string) => void; onBunkerUriChange: (v: string) => void;
   onRelayChange: (v: string) => void; onGenerate: () => void;
-  onBindExtension: () => void; onBindBunker: () => void; onBindLocal: () => void; onSignOut: () => void;
+  onBindExtension: () => void; onBindBunker: () => void; onBindLocal: () => void;
+  onStartConnect: () => void;
+  onSignOut: () => void;
 }) {
-  const [mode, setMode] = useState<"bunker" | "extension" | "local">("bunker");
+  const [mode, setMode] = useState<"connect" | "bunker" | "extension" | "local">("connect");
   return (
     <div className="max-w-sm w-full px-4">
       <div className="text-center mb-6">
@@ -47,8 +51,9 @@ export function BindScreen({ hasExtension, nsec, bunkerUri, relayUrl, error, onN
       </div>
       <div className="flex gap-1 mb-4 p-1 rounded-lg" style={{ backgroundColor: "var(--surface)" }}>
         {[
+          { key: "connect" as const, label: "📱 App" },
           { key: "bunker" as const, label: "🔗 Bunker" },
-          { key: "extension" as const, label: "🧩 Extension" },
+          { key: "extension" as const, label: "🧩 Ext" },
           { key: "local" as const, label: "🔑 Key" },
         ].map((tab) => (
           <button key={tab.key} onClick={() => setMode(tab.key)} disabled={tab.key === "extension" && !hasExtension}
@@ -59,13 +64,23 @@ export function BindScreen({ hasExtension, nsec, bunkerUri, relayUrl, error, onN
         ))}
       </div>
       <div className="space-y-3">
+        {mode === "connect" && (
+          <ConnectTab onStartConnect={onStartConnect} />
+        )}
         {mode === "bunker" && (
           <>
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>bunker:// URI</label>
               <input type="text" value={bunkerUri} onChange={(e) => onBunkerUriChange(e.target.value)} placeholder="bunker://abc...?relay=wss://..."
                 className="w-full px-3 py-2 rounded-lg text-sm font-mono" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }} />
-              <p className="text-[10px] mt-1" style={{ color: "var(--muted)" }}>Get this from Amethyst, Nsec.app, or your bunker signer app</p>
+              <details className="mt-1">
+                <summary className="text-[10px] cursor-pointer" style={{ color: "var(--accent)" }}>How to get your bunker URI</summary>
+                <div className="text-[10px] mt-1 space-y-1" style={{ color: "var(--muted)" }}>
+                  <p><strong>Primal:</strong> Settings → Wallet Connect → Copy bunker URI</p>
+                  <p><strong>Nsec.app:</strong> Settings → Remote Signer → Copy URI</p>
+                  <p><strong>Amber:</strong> Settings → Nostr Connect → Show bunker URI</p>
+                </div>
+              </details>
             </div>
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: "var(--muted)" }}>Relay</label>
@@ -109,6 +124,140 @@ export function BindScreen({ hasExtension, nsec, bunkerUri, relayUrl, error, onN
         {error && <p className="text-xs text-red-400">{error}</p>}
         <button onClick={onSignOut} className="w-full py-2 text-xs" style={{ color: "var(--muted)" }}>Sign out</button>
       </div>
+    </div>
+  );
+}
+
+// ── Connect tab: QR code + Open in App button ──
+
+function ConnectTab({ onStartConnect }: { onStartConnect: () => void }) {
+  const [waiting, setWaiting] = useState(false);
+  const mobile = isMobile();
+
+  const handleStart = () => {
+    setWaiting(true);
+    onStartConnect();
+  };
+
+  return (
+    <div className="text-center space-y-3">
+      <p className="text-xs" style={{ color: "var(--muted)" }}>
+        Scan QR with Nsec.app or Amber. Your keys stay on your device.
+      </p>
+      {mobile ? (
+        <button
+          onClick={handleStart}
+          disabled={waiting}
+          className="w-full py-3 rounded-lg font-semibold text-black disabled:opacity-40"
+          style={{ backgroundColor: "var(--accent)" }}
+        >
+          {waiting ? "Waiting for approval..." : "Open Signer App"}
+        </button>
+      ) : (
+        <>
+          <button
+            onClick={handleStart}
+            disabled={waiting}
+            className="w-full py-3 rounded-lg font-semibold text-black disabled:opacity-40"
+            style={{ backgroundColor: "var(--accent)" }}
+          >
+            {waiting ? "Waiting for scan..." : "Generate QR Code"}
+          </button>
+        </>
+      )}
+      <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+        Nsec.app &amp; Amber supported &bull; Primal users: use the Bunker tab
+      </p>
+    </div>
+  );
+}
+
+// ── Connect QR overlay: shown after user triggers the flow ──
+export function ConnectQRScreen({
+  uri,
+  onCancel,
+}: {
+  uri: string;
+  onCancel: () => void;
+}) {
+  const mobile = isMobile();
+  const [opened, setOpened] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Timer to show how long we've been waiting
+  useEffect(() => {
+    const start = Date.now();
+    const iv = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const openApp = () => {
+    window.location.href = uri;
+    setOpened(true);
+  };
+
+  const copyUri = async () => {
+    try {
+      await navigator.clipboard.writeText(uri);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* fallback */ }
+  };
+
+  return (
+    <div className="max-w-sm w-full px-4 text-center">
+      <div className="text-3xl mb-3 animate-pulse">📱</div>
+      <h1 className="text-lg font-bold mb-2">Connect Signer</h1>
+
+      {mobile ? (
+        <div className="space-y-3">
+          {!opened ? (
+            <>
+              <p className="text-xs" style={{ color: "var(--muted)" }}>
+                Tap below to open your signer app
+              </p>
+              <button
+                onClick={openApp}
+                className="w-full py-3 rounded-lg font-semibold text-black"
+                style={{ backgroundColor: "var(--accent)" }}
+              >
+                Open Signer App
+              </button>
+            </>
+          ) : (
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              Approve the connection in your signer app...
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            Scan this QR code with Primal, Nsec.app, or Amber on your phone
+          </p>
+          <div className="inline-block p-3 rounded-lg" style={{ backgroundColor: "white" }}>
+            <QRCodeSVG value={uri} size={200} />
+          </div>
+          <p className="text-xs font-mono" style={{ color: "var(--muted)" }}>
+            Waiting for signer... {elapsed}s
+          </p>
+          <button
+            onClick={copyUri}
+            className="w-full py-2 rounded-lg text-xs font-medium"
+            style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
+          >
+            {copied ? "Copied!" : "Copy nostrconnect URI"}
+          </button>
+          <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+            Paste the URI in Primal's browser or send it to your phone
+          </p>
+        </div>
+      )}
+
+      <button onClick={onCancel} className="mt-4 w-full py-2 text-xs" style={{ color: "var(--muted)" }}>
+        Cancel
+      </button>
     </div>
   );
 }

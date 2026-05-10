@@ -23,21 +23,23 @@ import {
   connectRelayWithReconnect,
   subscribeChannel,
   publishWithAck,
+  startNostrConnectFlow,
   type NostrSigner,
+  type NostrConnectHandle,
   type Relay,
   type ConnectionState,
   type ReconnectHandle,
 } from "./lib/nostr";
-import { DEFAULT_RELAY, CHANNEL_ID, FEED_CHANNEL_ID } from "./lib/constants";
+import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
 import type { Message, Profile } from "./lib/types";
 import MessageList from "./components/MessageList";
 import MessageInput from "./components/MessageInput";
 import FeedView from "./components/FeedView";
 import SettingsPanel from "./components/SettingsPanel";
 import Toast from "./components/Toast";
-import { LoginScreen, CheckingScreen, NoSbtScreen, BindScreen, BindingScreen } from "./components/LoginScreens";
+import { LoginScreen, CheckingScreen, NoSbtScreen, BindScreen, BindingScreen, ConnectQRScreen } from "./components/LoginScreens";
 
-type Screen = "login" | "checking" | "no-sbt" | "bind" | "binding" | "chat";
+type Screen = "login" | "checking" | "no-sbt" | "bind" | "binding" | "connect-qr" | "chat";
 
 function connectionDot(state: ConnectionState): { color: string; label: string } {
   switch (state) {
@@ -59,6 +61,8 @@ function ChatApp() {
   const [nsec, setNsec] = useState<string>("");
   const [bunkerUri, setBunkerUri] = useState<string>("");
   const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY);
+  const [connectHandle, setConnectHandle] = useState<NostrConnectHandle | null>(null);
+  const [connectUri, setConnectUri] = useState<string>("");
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -73,7 +77,7 @@ function ChatApp() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reconnectFnRef = useRef<(() => void) | null>(null);
   const reconnectHandleRef = useRef<ReconnectHandle | null>(null);
-  const [reconnectTrigger, setReconnectTrigger] = useState(0);
+  const reconnectTrigger = useState(0)[0];
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -136,7 +140,11 @@ function ChatApp() {
         try {
           const parsed = JSON.parse(savedSigner);
           if (parsed.type === "bunker" && parsed.uri) {
-            const s = await createNip46Signer(parsed.uri, (url) => { window.open(url, "_blank"); });
+            const s = await createNip46Signer(
+              parsed.uri,
+              (url: string) => { window.open(url, "_blank"); },
+              parsed.clientNsec,
+            );
             const pk = await s.getPublicKey();
             if (pk === existing.npub) {
               setSigner(s); setSignerType("bunker"); setScreen("chat"); return;
@@ -216,8 +224,6 @@ function ChatApp() {
               const eTags = (event.tags || []).filter((t: string[]) => t[0] === "e");
               const replyTag = eTags.find((t: string[]) => t[3] === "reply");
               let replyToId: string | undefined;
-              let replyToContent: string | undefined;
-              let replyToSender: string | undefined;
               if (replyTag) {
                 replyToId = replyTag[1];
               }
@@ -359,7 +365,9 @@ function ChatApp() {
       }
       const proof = await signChallenge(s, `legion:${accountId}`);
       await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
-      const signerData = mode === "bunker" ? { type: "bunker", uri: bunkerUri } : mode === "local" ? { type: "local", nsec } : { type: "extension" };
+      const signerData = mode === "bunker"
+        ? { type: "bunker", uri: bunkerUri, ...(s instanceof Object && "exportClientNsec" in s ? { clientNsec: (s as any).exportClientNsec() } : {}) }
+        : mode === "local" ? { type: "local", nsec } : { type: "extension" };
       localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify(signerData));
       setSigner(s); setMyPubkey(npub); setSignerType(mode); setScreen("chat");
     } catch (e: any) { setError("Binding failed: " + e.message); setScreen("bind"); }
@@ -377,12 +385,105 @@ function ChatApp() {
     } catch (e: any) { setError("Failed: " + e.message); }
   };
   const handleBindLocal = async () => {
-    if (!nsec) return;
+     if (!nsec) return;
     try { const s = createPrivateKeySigner(nsec); await doBind(s, await s.getPublicKey(), "local"); }
     catch (e: any) { setError("Failed: " + e.message); }
   };
   const handleGenerate = () => {
     const keys = generateKeys(); setNsec(keys.sk); setMyPubkey(getPubkey(keys.sk));
+  };
+
+  // ── NIP-46 nostrconnect:// flow ──
+  const handleStartConnect = () => {
+    setError("");
+    const handle = startNostrConnectFlow({
+      relay: relayUrl,
+      onAuthChallenge: (url) => { console.log("[NIP-46] auth challenge:", url); window.open(url, "_blank"); },
+    });
+    console.log("[NIP-46] nostrconnect URI:", handle.uri);
+    console.log("[NIP-46] client pubkey:", handle.clientPubkey);
+    setConnectHandle(handle);
+    setConnectUri(handle.uri);
+    setScreen("connect-qr");
+
+    // Debug: raw WS on nrs.primal.net to see if bunker responds to our requests
+    const debugWs2 = new WebSocket("wss://nrs.primal.net");
+    const debugSubId2 = "rsp_" + Math.random().toString(36).slice(2, 8);
+    const clientPk2 = handle.clientPubkey;
+    debugWs2.onopen = () => {
+      debugWs2.send(JSON.stringify(["REQ", debugSubId2, { kinds: [24133], "#p": [clientPk2] }]));
+      console.log("[NIP-46-DEBUG] response monitor on nrs.primal.net for p-tag:", clientPk2.slice(0, 12));
+    };
+    debugWs2.onmessage = (ev: MessageEvent) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg[0] === "EVENT") {
+          const evt = msg[2];
+          console.log("[NIP-46-DEBUG] response event:", {
+            from: evt.pubkey?.slice(0, 12),
+            pTags: evt.tags?.filter((t: string[]) => t[0] === "p").map((t: string[]) => t[1]?.slice(0, 12)),
+            contentLen: evt.content?.length,
+          });
+        }
+      } catch {}
+    };
+
+    // Await pairing in background
+    handle.ready
+      .then(async (s) => {
+        console.log("[NIP-46] paired! bunker pubkey:", s.bunkerPubkey);
+        const pk = await s.getPublicKey();
+        console.log("[NIP-46] user pubkey:", pk);
+        // Persist with client nsec for reliable reconnection
+        const clientNsec = s.exportClientNsec();
+        await doConnectBind(s, pk, clientNsec);
+      })
+      .catch((e: any) => {
+        console.error("[NIP-46] pairing failed:", e);
+        setScreen((prev) => {
+          if (prev === "connect-qr") {
+            setError(e.message || "Connection failed");
+            return "bind";
+          }
+          return prev;
+        });
+        setConnectHandle(null);
+        setConnectUri("");
+      });
+  };
+
+  const handleCancelConnect = () => {
+    connectHandle?.cancel();
+    setConnectHandle(null);
+    setConnectUri("");
+    setScreen("bind");
+  };
+
+  const doConnectBind = async (s: NostrSigner, npub: string, clientNsec: string) => {
+    if (!accountId) return;
+    setScreen("binding"); setError("");
+    try {
+      const allBindings = (await fetchAllBindingsRefresh()).bindings;
+      for (const [existingId, binding] of Object.entries(allBindings)) {
+        if (binding.npub === npub && existingId !== accountId) {
+          setError(`This Nostr key is already bound to ${existingId}`);
+          setScreen("bind");
+          return;
+        }
+      }
+      const proof = await signChallenge(s, `legion:${accountId}`);
+      await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
+      // Persist as bunker type with client nsec for reconnection
+      localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
+        type: "bunker",
+        uri: `bunker://${(s as any).bunkerPubkey}?relay=${relayUrl}`,
+        clientNsec,
+      }));
+      setSigner(s); setMyPubkey(npub); setSignerType("bunker"); setScreen("chat");
+    } catch (e: any) {
+      setError("Binding failed: " + e.message);
+      setScreen("bind");
+    }
   };
 
   const handleSend = async () => {
@@ -531,7 +632,7 @@ function ChatApp() {
         </header>
       )}
       <main className="flex-1 overflow-hidden">
-        {(screen === "login" || screen === "checking" || screen === "no-sbt" || screen === "bind" || screen === "binding") && (
+        {(screen === "login" || screen === "checking" || screen === "no-sbt" || screen === "bind" || screen === "binding" || screen === "connect-qr") && (
           <div className="flex items-center justify-center h-full max-w-lg mx-auto w-full px-4">
             {screen === "login" && <LoginScreen onSignIn={handleSignIn} />}
             {screen === "checking" && <CheckingScreen />}
@@ -544,8 +645,12 @@ function ChatApp() {
                 onBunkerUriChange={setBunkerUri}
                 onRelayChange={setRelayUrl} onGenerate={handleGenerate}
                 onBindExtension={handleBindExtension} onBindBunker={handleBindBunker}
-                onBindLocal={handleBindLocal} onSignOut={handleSignOut}
+                onBindLocal={handleBindLocal} onStartConnect={handleStartConnect}
+                onSignOut={handleSignOut}
               />
+            )}
+            {screen === "connect-qr" && (
+              <ConnectQRScreen uri={connectUri} onCancel={handleCancelConnect} />
             )}
             {screen === "binding" && <BindingScreen />}
           </div>

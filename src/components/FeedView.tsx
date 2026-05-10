@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import type { Message, Profile } from "../lib/types";
+import type { BindingCache } from "../lib/binding";
 import { subscribeChannel, publishWithAck, signChannelMessage, signReaction } from "../lib/nostr";
 import { FEED_CHANNEL_ID } from "../lib/constants";
 import { Heart, MessageCircle, Loader2, X, Plus, ImagePlus, Repeat2, Share2 } from "lucide-react";
 import type { Relay, NostrSigner } from "../lib/nostr";
 import { uploadToNostrBuild } from "../lib/nostr";
-import type { BindingCache } from "../lib/types";
+
 
 function timeAgo(ts: number): string {
   const s = Math.floor(Date.now() / 1000) - ts;
@@ -26,9 +27,9 @@ function parseImage(content: string): { text: string; imageUrl: string | null } 
 }
 
 /** Render text with @mention highlighting */
-function renderContent(text: string, profiles: Record<string, Profile>, allPosts: Message[]) {
+function renderContent(text: string, profiles: Record<string, Profile>, _allPosts: Message[]) {
   // Match @displayName patterns or nostr:npub... patterns
-  const parts: JSX.Element[] = [];
+  const parts: React.ReactElement[] = [];
   // Build a lookup: displayName -> pubkey from all known profiles
   const nameToKey: Record<string, string> = {};
   for (const [pk, p] of Object.entries(profiles)) {
@@ -166,6 +167,7 @@ function ComposeModal({
   onReply: (msg: Message) => void;
   showToast: (msg: string) => void;
 }) {
+  void allPosts; // TODO: use for quote content resolution
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -220,7 +222,7 @@ function ComposeModal({
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items) return;
-    for (const item of items) {
+    for (const item of Array.from(items)) {
       if (item.type.startsWith("image/")) {
         e.preventDefault();
         const file = item.getAsFile();
@@ -418,6 +420,7 @@ function PostCard({
   onOpenThread: (msg: Message) => void;
   replies: Message[];
 }) {
+  void onReply; // passed from parent, used by thread components
   const [expanded, setExpanded] = useState(false);
   const [showThread, setShowThread] = useState(false);
   const profile = profiles[msg.pubkey];
@@ -536,7 +539,7 @@ function ReplyTree({
     <div className="relative">
       {/* Trunk line for this depth — spans full height of all children */}
       <div className="absolute top-0 bottom-0 w-px" style={{ left: `${lineX}px`, backgroundColor: "var(--border)" }} />
-      {children.map((reply, idx) => {
+      {children.map((reply) => {
         const rp = profiles[reply.pubkey];
         const rn = reply.sender || rp?.display_name || rp?.name || reply.pubkey.slice(0, 12) + "...";
         const heartReactions = (reply.reactions || {})["❤️"] || [];
@@ -809,6 +812,7 @@ interface FeedViewProps {
 export default function FeedView({
   signer, myPubkey, profiles, bindingsRef, relay, connState, scrollToPostId, showToast,
 }: FeedViewProps) {
+  void connState; // reserved for connection indicator
   const [posts, setPosts] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   // null = closed, "new" = new post, Message = reply, { quote: Message } = quote
@@ -927,7 +931,7 @@ export default function FeedView({
   }, [signer, myPubkey, relay]);
 
   const navigateToPost = useCallback((id: string) => {
-    const el = feedScrollRef.current?.querySelector(`[data-post-id="${id}"]`);
+    const el = feedScrollRef.current?.querySelector(`[data-post-id="${id}"]`) as HTMLElement | null;
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       el.style.transition = "background 0.3s";
