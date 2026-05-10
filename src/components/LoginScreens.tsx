@@ -181,18 +181,40 @@ export function ConnectQRScreen({
   onCancel: () => void;
 }) {
   const mobile = isMobile();
-  const [opened, setOpened] = useState(false);
+  const [_opened, setOpened] = useState(false);
   const [copied, setCopied] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [logs, setLogs] = useState<string[]>([]);
 
-  // Timer to show how long we've been waiting
+  // Capture [NIP-46] console logs for inline debug display
+  useEffect(() => {
+    const origLog = console.log;
+    const origErr = console.error;
+    const addLog = (prefix: string, args: any[]) => {
+      const text = args.map((a: any) => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+      if (text.includes("[NIP-46")) {
+        setLogs(prev => [...prev.slice(-30), `${new Date().toLocaleTimeString().slice(0,8)} ${prefix} ${text}`]);
+      }
+    };
+    console.log = (...args: any[]) => { origLog(...args); addLog("LOG", args); };
+    console.error = (...args: any[]) => { origErr(...args); addLog("ERR", args); };
+    return () => { console.log = origLog; console.error = origErr; };
+  }, []);
+
+  // Timer + visibility tracking
   useEffect(() => {
     const start = Date.now();
     const iv = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
-    return () => clearInterval(iv);
+    const onVis = () => {
+      const state = document.visibilityState;
+      setLogs(prev => [...prev.slice(-30), `${new Date().toLocaleTimeString().slice(0,8)} VIS visibility=${state}`]);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(iv); document.removeEventListener("visibilitychange", onVis); };
   }, []);
 
   const openApp = () => {
+    setLogs(prev => [...prev.slice(-30), `${new Date().toLocaleTimeString().slice(0,8)} UI opening deep link...`]);
     window.location.href = uri;
     setOpened(true);
   };
@@ -210,48 +232,45 @@ export function ConnectQRScreen({
       <div className="text-3xl mb-3 animate-pulse">📱</div>
       <h1 className="text-lg font-bold mb-2">Connect Signer</h1>
 
-      {mobile ? (
-        <div className="space-y-3">
-          {!opened ? (
-            <>
-              <p className="text-xs" style={{ color: "var(--muted)" }}>
-                Tap below to open your signer app
-              </p>
-              <button
-                onClick={openApp}
-                className="w-full py-3 rounded-lg font-semibold text-black"
-                style={{ backgroundColor: "var(--accent)" }}
-              >
-                Open Signer App
-              </button>
-            </>
-          ) : (
-            <p className="text-xs" style={{ color: "var(--muted)" }}>
-              Approve the connection in your signer app...
-            </p>
-          )}
+      <div className="space-y-3">
+        <div className="bg-white p-4 rounded-xl inline-block mx-auto">
+          <QRCodeSVG value={uri} size={200} />
         </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-xs" style={{ color: "var(--muted)" }}>
-            Scan this QR code with Primal, Nsec.app, or Amber on your phone
-          </p>
-          <div className="inline-block p-3 rounded-lg" style={{ backgroundColor: "white" }}>
-            <QRCodeSVG value={uri} size={200} />
-          </div>
-          <p className="text-xs font-mono" style={{ color: "var(--muted)" }}>
-            Waiting for signer... {elapsed}s
-          </p>
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          Scan from your signer app{elapsed > 0 ? ` (${elapsed}s)` : ""}
+        </p>
+        <div className="flex gap-2 justify-center">
           <button
             onClick={copyUri}
-            className="w-full py-2 rounded-lg text-xs font-medium"
-            style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
+            className="px-3 py-2 rounded-lg text-xs font-medium border"
+            style={{ borderColor: "var(--border)" }}
           >
-            {copied ? "Copied!" : "Copy nostrconnect URI"}
+            {copied ? "Copied!" : "Copy URI"}
           </button>
-          <p className="text-[10px]" style={{ color: "var(--muted)" }}>
-            Paste the URI in Primal's browser or send it to your phone
-          </p>
+          {mobile && (
+            <button
+              onClick={openApp}
+              className="px-3 py-2 rounded-lg text-xs font-medium text-black"
+              style={{ backgroundColor: "var(--accent)" }}
+            >
+              Open Signer App
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Debug log */}
+      {logs.length > 0 && (
+        <div className="mt-3 text-left">
+          <p className="text-[10px] font-bold mb-1" style={{ color: "var(--muted)" }}>Debug Log:</p>
+          <div className="max-h-40 overflow-y-auto rounded-lg p-2 text-[10px] font-mono"
+               style={{ backgroundColor: "rgba(0,0,0,0.4)" }}>
+            {logs.map((l, i) => (
+              <div key={i} style={{ color: l.includes("ERR") ? "#f87171" : l.includes("VIS") ? "#facc15" : "#9ca3af" }}>
+                {l}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

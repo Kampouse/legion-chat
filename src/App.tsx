@@ -428,9 +428,24 @@ function ChatApp() {
       } catch {}
     };
 
+    // Mobile: when app comes back to foreground after signer app,
+    // the WS subscription died during background. Reopen it so new events arrive.
+    // NOTE: use local `handle` (not React state `connectHandle`) — state is stale in this closure
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        console.log("[NIP-46] app resumed, refreshing subscription...");
+        handle.refreshSubscription?.();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    // Clean up listener when pairing completes or cancels
+    const cleanup = () => document.removeEventListener("visibilitychange", onVisibilityChange);
+
     // Await pairing in background
     handle.ready
       .then(async (s) => {
+        cleanup();
         console.log("[NIP-46] paired! bunker pubkey:", s.bunkerPubkey);
         const pk = await s.getPublicKey();
         console.log("[NIP-46] user pubkey:", pk);
@@ -439,6 +454,7 @@ function ChatApp() {
         await doConnectBind(s, pk, clientNsec);
       })
       .catch((e: any) => {
+        cleanup();
         console.error("[NIP-46] pairing failed:", e);
         setScreen((prev) => {
           if (prev === "connect-qr") {
