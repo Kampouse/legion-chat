@@ -527,60 +527,76 @@ function ReplyTree({
 }) {
   const children = replies.filter((r) => r.replyToId === parentId);
   if (children.length === 0) return null;
-  const indent = Math.min(depth, maxDepth) * 20;
 
   return (
     <>
-      {children.map((reply) => {
+      {children.map((reply, idx) => {
         const rp = profiles[reply.pubkey];
         const rn = reply.sender || rp?.display_name || rp?.name || reply.pubkey.slice(0, 12) + "...";
         const heartReactions = (reply.reactions || {})["❤️"] || [];
         const liked = heartReactions.includes(myPubkey);
         const { text: replyContent } = parseImage(reply.content);
+        const avatarSize = depth === 0 ? 32 : 28;
+        const avatarPad = depth === 0 ? 16 : 18;
+        const isLast = idx === children.length - 1;
+        const hasChildren = replies.some((r) => r.replyToId === reply.id);
+        // Thread line runs full height if there are siblings below or children
+        const showLine = !isLast || hasChildren;
+
         return (
-          <div key={reply.id} style={{ paddingLeft: `${indent}px` }}>
-            <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
-              <div className="flex gap-3">
-                <Avatar profile={rp} name={rn} size={depth === 0 ? 32 : 28} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
-                  </div>
-                  {replyContent && (
-                    <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
-                      {renderContent(replyContent, profiles, allPosts)}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-5 mt-2">
-                    <button onClick={() => onReply(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
-                      <MessageCircle size={14} />
-                    </button>
-                    <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
-                      <Heart size={14} fill={liked ? "currentColor" : "none"} />
-                      {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
-                    </button>
-                  </div>
-                </div>
+          <div key={reply.id} className="flex" style={{ paddingLeft: `${depth * 28}px` }}>
+            {/* Thread line column */}
+            <div className="flex flex-col items-center shrink-0" style={{ width: `${avatarPad * 2 + avatarSize}px` }}>
+              {/* Top half: connects to avatar center */}
+              <div className="w-px flex-1" style={{ backgroundColor: isLast ? "transparent" : "var(--border)" }} />
+              {/* Avatar */}
+              <div className="shrink-0" style={{ padding: `0 ${avatarPad}px` }}>
+                <Avatar profile={rp} name={rn} size={avatarSize} />
+              </div>
+              {/* Bottom half: continues if more siblings or children */}
+              <div className="w-px flex-1" style={{ backgroundColor: showLine && !isLast ? "var(--border)" : hasChildren ? "var(--border)" : "transparent" }} />
+            </div>
+            {/* Content */}
+            <div className="flex-1 min-w-0 py-2 pr-4">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
+                <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
+              </div>
+              {replyContent && (
+                <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
+                  {renderContent(replyContent, profiles, allPosts)}
+                </p>
+              )}
+              <div className="flex items-center gap-5 mt-2">
+                <button onClick={() => onReply(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                  <MessageCircle size={14} />
+                </button>
+                <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
+                  <Heart size={14} fill={liked ? "currentColor" : "none"} />
+                  {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
+                </button>
               </div>
             </div>
-            {/* Recurse — stop at maxDepth */}
-            {depth + 1 < maxDepth && (
-              <ReplyTree
-                parentId={reply.id}
-                replies={replies}
-                profiles={profiles}
-                myPubkey={myPubkey}
-                allPosts={allPosts}
-                depth={depth + 1}
-                maxDepth={maxDepth}
-                onReply={onReply}
-                onReact={onReact}
-              />
-            )}
           </div>
         );
       })}
+      {/* Render nested children at the right indentation */}
+      {children.map((reply) => (
+        depth + 1 < maxDepth && replies.some((r) => r.replyToId === reply.id) ? (
+          <ReplyTree
+            key={`sub-${reply.id}`}
+            parentId={reply.id}
+            replies={replies}
+            profiles={profiles}
+            myPubkey={myPubkey}
+            allPosts={allPosts}
+            depth={depth + 1}
+            maxDepth={maxDepth}
+            onReply={onReply}
+            onReact={onReact}
+          />
+        ) : null
+      ))}
     </>
   );
 }
