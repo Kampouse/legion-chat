@@ -527,10 +527,12 @@ function ThreadModal({
   onReact: (msgId: string, pubkey: string, emoji: string) => void;
   showToast: (msg: string) => void;
 }) {
+  const [replyingTo, setReplyingTo] = useState<Message>(rootPost);
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<Message>(rootPost);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevReplyCount = useRef(0);
 
   // Collect all replies in the thread (not just direct children)
   const threadIds = new Set<string>([rootPost.id]);
@@ -550,6 +552,14 @@ function ThreadModal({
     }
   }
   replies.sort((a, b) => a.created_at - b.created_at);
+
+  // Auto-scroll when new replies arrive
+  useEffect(() => {
+    if (replies.length > prevReplyCount.current && prevReplyCount.current > 0) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+    prevReplyCount.current = replies.length;
+  }, [replies.length]);
 
   const rootProfile = profiles[rootPost.pubkey];
   const rootName = rootPost.sender || rootProfile?.display_name || rootProfile?.name || rootPost.pubkey.slice(0, 12) + "...";
@@ -598,7 +608,7 @@ function ThreadModal({
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
           {/* Root post */}
           <div className="px-4 pt-3 pb-2">
             <div className="flex gap-3">
