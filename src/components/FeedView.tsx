@@ -541,16 +541,20 @@ function ReplyTree({
         const avatarSize = depth === 0 ? 32 : 28;
 
         return (
-          <div key={reply.id} className="flex" style={{ paddingLeft: `${depth * 28 + 4}px` }}>
-            {/* Avatar column with line segments */}
-            <div className="flex flex-col items-center shrink-0" style={{ width: `${avatarSize + 24}px` }}>
-              {/* Line above avatar: always visible (connects from parent) */}
+          <div key={reply.id} className="flex" style={{ paddingLeft: `${depth * 28 + 8}px` }}>
+            {/* Branch connector: vertical trunk + horizontal arm to avatar */}
+            <div className="flex flex-col items-center shrink-0" style={{ width: `${avatarSize + 20}px` }}>
+              {/* Top half of trunk (from parent down to branch point) */}
               <div className="w-px flex-1" style={{ backgroundColor: "var(--border)" }} />
-              {/* Avatar circle with bg to hide line behind it */}
-              <div className="shrink-0 rounded-full" style={{ padding: "0 12px", backgroundColor: "var(--bg)" }}>
+              {/* Horizontal arm + avatar row */}
+              <div className="shrink-0 flex items-center" style={{ backgroundColor: "var(--bg)" }}>
+                {/* Horizontal stub connecting trunk to avatar */}
+                <div className="h-px" style={{ width: "10px", backgroundColor: "var(--border)" }} />
                 <Avatar profile={rp} name={rn} size={avatarSize} />
+                {/* Right padding to match column width */}
+                <div style={{ width: "10px" }} />
               </div>
-              {/* Line below avatar: continues if more siblings or children below */}
+              {/* Bottom half of trunk (continues to next sibling) */}
               <div className="w-px flex-1" style={{ backgroundColor: (!isLast || hasChildren) ? "var(--border)" : "transparent" }} />
             </div>
             {/* Content */}
