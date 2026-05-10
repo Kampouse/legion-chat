@@ -1,0 +1,269 @@
+diff --git a/node_modules/@nostr-wot/signers/dist/index.js b/node_modules/@nostr-wot/signers/dist/index.js
+index e8e0f83..799aaed 100644
+--- a/node_modules/@nostr-wot/signers/dist/index.js
++++ b/node_modules/@nostr-wot/signers/dist/index.js
+@@ -213,6 +213,17 @@ var _Nip46Signer = class _Nip46Signer {
+         __privateSet(signer, _pendingNostrConnect, null);
+         void signer.close();
+       },
++      // Reopen subscription — needed when mobile browser suspends WS in background
++      // Also replace the pool so publish() uses fresh connections (stale ones die on background)
++      refreshSubscription: () => {
++        const close = __privateGet(signer, _subClose);
++        try { close?.(); } catch {}
++        // New pool = fresh relay connections for both subscribe AND publish
++        const freshPool = new SimplePool();
++        __privateSet(signer, _pool, freshPool);
++        __privateMethod(signer, _Nip46Signer_instances, openSubscription_fn).call(signer);
++        console.log("[NIP-46] pool + subscription refreshed after app resume");
++      },
+       ready
+     };
+   }
+@@ -279,11 +290,12 @@ _ready = new WeakMap();
+ _pendingNostrConnect = new WeakMap();
+ _Nip46Signer_instances = new WeakSet();
+ openSubscription_fn = async function() {
++  console.log("[NIP-46] openSubscription on relays:", __privateGet(this, _relays), "clientPk:", __privateGet(this, _clientPk)?.slice(0,12));
+   const sub = __privateGet(this, _pool).subscribeMany(
+     __privateGet(this, _relays),
+     { kinds: [24133], "#p": [__privateGet(this, _clientPk)] },
+     {
+-      onevent: (event) => void __privateMethod(this, _Nip46Signer_instances, onMessage_fn).call(this, event),
++      onevent: (event) => { console.log("[NIP-46] pool.onevent fired! pubkey:", event.pubkey?.slice(0,12)); void __privateMethod(this, _Nip46Signer_instances, onMessage_fn).call(this, event); },
+       oneose: () => void 0
+     }
+   );
+@@ -306,8 +318,14 @@ request_fn = async function(method, params) {
+   }
+   const id = crypto.randomUUID();
+   const payload = JSON.stringify({ id, method, params });
+-  const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), __privateGet(this, _bunkerPk));
+-  const ciphertext = nip44.v2.encrypt(payload, conv);
++  let ciphertext;
++  // Try nip44 first (Primal nostrconnect uses nip44), fallback to nip04
++  try {
++    const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), __privateGet(this, _bunkerPk));
++    ciphertext = nip44.v2.encrypt(payload, conv);
++  } catch (e44) {
++    ciphertext = await nip04.encrypt(__privateGet(this, _clientSk), __privateGet(this, _bunkerPk), payload);
++  }
+   const reqEvent = finalizeEvent(
+     {
+       kind: 24133,
+@@ -324,43 +342,203 @@ request_fn = async function(method, params) {
+     }, __privateGet(this, _requestTimeout));
+     __privateGet(this, _pending).set(id, { resolve, reject, timer });
+   });
+-  await Promise.allSettled(__privateGet(this, _pool).publish(__privateGet(this, _relays), reqEvent));
++  console.log("[NIP-46] sending request:", method, "id:", id, "to bunker:", __privateGet(this, _bunkerPk)?.slice(0,12), "on relays:", __privateGet(this, _relays));
++  const pubResult = await Promise.allSettled(__privateGet(this, _pool).publish(__privateGet(this, _relays), reqEvent));
++  pubResult.forEach((r, i) => {
++    if (r.status === "rejected") console.error("[NIP-46] publish failed for relay", __privateGet(this, _relays)[i], r.reason);
++    else console.log("[NIP-46] publish OK for relay", __privateGet(this, _relays)[i]);
++  });
++  console.log("[NIP-46] request published to", __privateGet(this, _relays).length, "relays, waiting...");
+   return promise;
+ };
+ onMessage_fn = async function(event) {
+   var _a, _b;
++  console.log("[NIP-46] onMessage_fn called! pubkey:", event.pubkey?.slice(0,12), "pTags:", event.tags?.filter(t=>t[0]==="p").map(t=>t[1]?.slice(0,12)));
+   if (__privateGet(this, _pendingNostrConnect)) {
++    let payload2;
+     try {
+-      const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), event.pubkey);
+-      const payload2 = nip44.v2.decrypt(event.content, conv);
++      try {
++        const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), event.pubkey);
++        payload2 = nip44.v2.decrypt(event.content, conv);
++      } catch (e44) {
++        payload2 = await nip04.decrypt(__privateGet(this, _clientSk), event.pubkey, event.content);
++      }
+       const parsed2 = JSON.parse(payload2);
++      const secret = __privateGet(this, _pendingNostrConnect).secret;
++      let paired = false;
++
++      // Standard nostrconnect: bunker sends {"method":"connect","params":[pubkey,secret]}
+       if (parsed2.method === "connect" && parsed2.params) {
+-        const matched = parsed2.params.includes(__privateGet(this, _pendingNostrConnect).secret);
+-        if (matched) {
+-          const bunkerPk = event.pubkey;
+-          __privateGet(this, _pendingNostrConnect).onPair(bunkerPk);
+-          if (parsed2.id) await __privateMethod(this, _Nip46Signer_instances, sendAck_fn).call(this, bunkerPk, parsed2.id);
+-          return;
++        paired = parsed2.params.includes(secret);
++      }
++      // Primal variant: bunker sends {"id":"...","result":"ack"} or {"id":"...","result":"<pubkey>"}
++      // Treat any response while pending as a successful pairing
++      if (!paired && parsed2.id && parsed2.result !== undefined) {
++        paired = true;
++      }
++
++      if (paired) {
++        const bunkerPk = event.pubkey;
++        const onPair = __privateGet(this, _pendingNostrConnect).onPair;
++        // Cache result if it's a pubkey (64 hex chars)
++        if (parsed2.result && typeof parsed2.result === "string" && /^[0-9a-f]{64}$/.test(parsed2.result)) {
++          __privateSet(this, _userPk, parsed2.result);
++          console.log("[NIP-46] cached userPk from pairing:", parsed2.result.slice(0, 12));
++        } else {
++          console.log("[NIP-46] pairing result (session key):", parsed2.result?.slice(0, 12), "len:", parsed2.result?.length);
+         }
++        // Set bunkerPk and clear nostrconnect state
++        __privateSet(this, _bunkerPk, bunkerPk);
++        __privateSet(this, _pendingNostrConnect, null);
++
++        // Use ephemeral relay connection per RPC (reference SDK pattern)
++        // This avoids SimplePool's event dedup/lifecycle issues
++        const rawRpc = async (method, params, timeoutMs = 15_000) => {
++          const id = crypto.randomUUID();
++          const payload = JSON.stringify({ id, method, params });
++          // Primal nostrconnect uses nip44 both ways — try nip44 first, nip04 fallback
++          let ciphertext;
++          try {
++            const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), bunkerPk);
++            ciphertext = nip44.v2.encrypt(payload, conv);
++          } catch (e44) {
++            ciphertext = await nip04.encrypt(__privateGet(this, _clientSk), bunkerPk, payload);
++          }
++          const rpcEvent = finalizeEvent({
++            kind: 24133, created_at: Math.floor(Date.now() / 1000),
++            tags: [["p", bunkerPk]], content: ciphertext
++          }, __privateGet(this, _clientSk));
++          const clientPk = __privateGet(this, _clientPk);
++          const relayUrls = __privateGet(this, _relays);
++          const since = Math.floor(Date.now() / 1000);
++
++          return new Promise((resolve, reject) => {
++            const timer = setTimeout(() => { sockets.forEach(s => { try { s.close(); } catch {} }); reject(new Error(method + " timed out after " + timeoutMs + "ms")); }, timeoutMs);
++            let settled = false;
++            const sockets = [];
++            const relayList = relayUrls.length > 0 ? relayUrls : ["wss://nrs.primal.net"];
++
++            for (const relayUrl of relayList) {
++              try {
++                const subId = "rpc_" + Math.random().toString(36).slice(2, 8);
++                const ws = new WebSocket(relayUrl);
++                sockets.push(ws);
++                ws.onopen = () => {
++                  // Subscribe FIRST, then publish
++                  ws.send(JSON.stringify(["REQ", subId, { kinds: [24133], authors: [bunkerPk], "#p": [clientPk], since }]));
++                  ws.send(JSON.stringify(["EVENT", rpcEvent]));
++                };
++                ws.onmessage = async (ev) => {
++                  try {
++                    const msg = JSON.parse(ev.data);
++                    if (msg[0] === "EVENT" && msg[2] && !settled) {
++                      const evt = msg[2];
++                      console.log("[NIP-46] rawRpc response from:", evt.pubkey?.slice(0,12), "on", relayUrl, "pTags:", evt.tags?.filter(t=>t[0]==="p").map(t=>t[1]?.slice(0,12)));
++                      if (evt.pubkey === bunkerPk) {
++                        let plain;
++                        try {
++                          const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), bunkerPk);
++                          plain = nip44.v2.decrypt(evt.content, conv);
++                          console.log("[NIP-46] rawRpc nip44 decrypt OK");
++                        } catch (e44) {
++                          console.log("[NIP-46] rawRpc nip44 failed, trying nip04:", e44.message);
++                          plain = await nip04.decrypt(__privateGet(this, _clientSk), bunkerPk, evt.content);
++                          console.log("[NIP-46] rawRpc nip04 decrypt OK");
++                        }
++                        const parsed = JSON.parse(plain);
++                        console.log("[NIP-46] rawRpc parsed: id match?", parsed.id === id, "expected:", id.slice(0,8), "got:", parsed.id?.slice(0,8), "method:", parsed.method, "result:", parsed.result?.slice(0,12));
++                        if (parsed.id === id) {
++                          settled = true;
++                          clearTimeout(timer);
++                          sockets.forEach(s => { try { s.close(); } catch {} });
++                          resolve(parsed);
++                        }
++                      }
++                    }
++                  } catch {}
++                };
++                ws.onerror = () => {}; // individual relay errors are OK
++              } catch {}
++            }
++            if (sockets.length === 0) reject(new Error("No relay connections"));
++          });
++        };
++
++        // Wait for page to be visible before sending RPCs — iOS Safari pauses WS sends while hidden
++        const waitVisible = () => new Promise(resolve => {
++          if (document.visibilityState === "visible") return resolve();
++          console.log("[NIP-46] page hidden, waiting for visibility before RPC...");
++          const handler = () => {
++            if (document.visibilityState === "visible") {
++              document.removeEventListener("visibilitychange", handler);
++              resolve();
++            }
++          };
++          document.addEventListener("visibilitychange", handler);
++        });
++
++        // ACK the pairing FIRST — Primal won't accept RPCs until it gets the ack
++        if (parsed2.id) {
++          console.log("[NIP-46] sending ack for pairing id:", parsed2.id.slice(0,8));
++          await __privateMethod(this, _Nip46Signer_instances, sendAck_fn).call(this, bunkerPk, parsed2.id);
++        }
++
++        try {
++          // Fire connect() + get_public_key IMMEDIATELY — don't wait for visibility.
++          // On mobile deep link, the page is still active when pairing arrives.
++          // If we wait for visibility, Primal may have dropped the session.
++          console.log("[NIP-46] sending connect() immediately after pairing...");
++          try {
++            const connectResp = await rawRpc("connect", [__privateGet(this, _clientPk), secret]);
++            console.log("[NIP-46] connect() response:", connectResp.result?.slice(0, 20));
++          } catch (ce) {
++            console.warn("[NIP-46] connect() failed:", ce.message);
++          }
++
++          console.log("[NIP-46] calling get_public_key");
++          const gpkResp = await rawRpc("get_public_key", []);
++          console.log("[NIP-46] get_public_key response:", gpkResp.result?.slice(0, 20));
++
++          if (gpkResp.result && /^[0-9a-f]{64}$/.test(gpkResp.result)) {
++            __privateSet(this, _userPk, gpkResp.result);
++            console.log("[NIP-46] cached userPk:", gpkResp.result.slice(0, 12));
++          }
++        } catch (e) {
++          console.warn("[NIP-46] RPC failed:", e.message);
++        }
++        onPair(bunkerPk);
++        return;
+       }
+     } catch (e) {
++      console.error("[NIP-46] pairing error:", e.message || e);
+     }
+     return;
+   }
+-  if (!__privateGet(this, _bunkerPk) || event.pubkey !== __privateGet(this, _bunkerPk)) return;
++  console.log("[NIP-46] post-pair check: bunkerPk set?", !!__privateGet(this, _bunkerPk), "from:", event.pubkey?.slice(0,12), "expected:", __privateGet(this, _bunkerPk)?.slice(0,12), "match:", event.pubkey === __privateGet(this, _bunkerPk));
++  if (!__privateGet(this, _bunkerPk) || event.pubkey !== __privateGet(this, _bunkerPk)) {
++    return;
++  }
+   let payload;
+   try {
+-    const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), __privateGet(this, _bunkerPk));
+-    payload = nip44.v2.decrypt(event.content, conv);
++    // Always try nip44 first (Primal and most modern bunkers use nip44 both ways), nip04 fallback
++    try {
++      const conv = nip44.v2.utils.getConversationKey(__privateGet(this, _clientSk), __privateGet(this, _bunkerPk));
++      payload = nip44.v2.decrypt(event.content, conv);
++    } catch (e44) {
++      payload = await nip04.decrypt(__privateGet(this, _clientSk), __privateGet(this, _bunkerPk), event.content);
++    }
+   } catch (e) {
++    console.error("[NIP-46] post-pair decrypt failed:", e.message);
+     return;
+   }
+   let parsed;
+   try {
+     parsed = JSON.parse(payload);
+   } catch (e) {
++    console.error("[NIP-46] post-pair JSON parse failed:", e.message, "payload:", payload?.slice(0, 60));
+     return;
+   }
++  console.log("[NIP-46] post-pair response:", parsed.id, parsed.result?.slice(0, 20), parsed.error);
+   if (!parsed.id) return;
+   const pending = __privateGet(this, _pending).get(parsed.id);
+   if (!pending) return;
