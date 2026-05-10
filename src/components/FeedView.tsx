@@ -539,52 +539,47 @@ function ReplyTree({
         const isLast = idx === children.length - 1;
         const hasChildren = depth + 1 < maxDepth && replies.some((r) => r.replyToId === reply.id);
         const avatarSize = depth === 0 ? 32 : 28;
-        const colW = avatarSize + 20;
 
         return (
-          <div key={reply.id} className="flex" style={{ paddingLeft: `${depth * 28 + 8}px` }}>
-            {/* Branch connector column */}
-            <div className="flex flex-col items-center shrink-0" style={{ width: `${colW}px` }}>
-              {/* Top half trunk */}
-              <div className="w-px flex-1" style={{ backgroundColor: "var(--border)" }} />
-              {/* Diagonal branch + avatar row */}
-              <div className="shrink-0 flex items-center relative" style={{ height: `${avatarSize}px`, width: `${colW}px` }}>
-                {/* SVG diagonal from trunk center-left down to avatar center */}
-                <svg className="absolute inset-0" width={colW} height={avatarSize} style={{ overflow: "visible" }}>
-                  <line x1={colW / 2} y1="0" x2={10} y2={avatarSize / 2} stroke="var(--border)" strokeWidth="1" />
-                </svg>
-                {/* Left spacer (trunk side) */}
-                <div style={{ width: "10px" }} />
-                <Avatar profile={rp} name={rn} size={avatarSize} />
+          <div key={reply.id} className="relative" style={{ paddingLeft: `${depth * 32 + 16}px` }}>
+            {/* Left vertical line — runs full height behind everything */}
+            {(!isLast || hasChildren) && (
+              <div className="absolute top-0 bottom-0 w-px" style={{ left: `${depth * 32 + 28}px`, backgroundColor: "var(--border)" }} />
+            )}
+            {/* Avatar + content */}
+            <div className="flex gap-3 py-1.5 relative">
+              <div className="shrink-0 rounded-full relative" style={{ width: `${avatarSize}px`, height: `${avatarSize}px`, zIndex: 1 }}>
+                {/* Background circle hides the line behind avatar */}
+                <div className="absolute inset-0 rounded-full" style={{ backgroundColor: "var(--bg)" }} />
+                <div className="relative">
+                  <Avatar profile={rp} name={rn} size={avatarSize} />
+                </div>
               </div>
-              {/* Bottom half trunk */}
-              <div className="w-px flex-1" style={{ backgroundColor: (!isLast || hasChildren) ? "var(--border)" : "transparent" }} />
-            </div>
-            {/* Content */}
-            <div className="flex-1 min-w-0 py-2 pr-4">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
-                <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
-              </div>
-              {replyContent && (
-                <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
-                  {renderContent(replyContent, profiles, allPosts)}
-                </p>
-              )}
-              <div className="flex items-center gap-5 mt-2">
-                <button onClick={() => onReply(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
-                  <MessageCircle size={14} />
-                </button>
-                <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
-                  <Heart size={14} fill={liked ? "currentColor" : "none"} />
-                  {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
-                </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{rn}</span>
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>· {timeAgo(reply.created_at)}</span>
+                </div>
+                {replyContent && (
+                  <p className="text-[14px] mt-0.5 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>
+                    {renderContent(replyContent, profiles, allPosts)}
+                  </p>
+                )}
+                <div className="flex items-center gap-5 mt-1.5">
+                  <button onClick={() => onReply(reply)} className="flex items-center gap-1.5 text-[12px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                    <MessageCircle size={14} />
+                  </button>
+                  <button onClick={() => onReact(reply.id, reply.pubkey, "❤️")} className="flex items-center gap-1.5 text-[12px] active:scale-110 transition-transform" style={{ color: liked ? "#ef4444" : "var(--muted)" }}>
+                    <Heart size={14} fill={liked ? "currentColor" : "none"} />
+                    {heartReactions.length > 0 && <span>{heartReactions.length}</span>}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         );
       })}
-      {/* Render nested children */}
+      {/* Nested children */}
       {children.map((reply) => (
         depth + 1 < maxDepth && replies.some((r) => r.replyToId === reply.id) ? (
           <ReplyTree
@@ -704,7 +699,7 @@ function ThreadModal({
         {/* Scrollable content */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
           {/* Root post */}
-          <div className="px-4 pt-3">
+          <div className="relative" style={{ padding: "12px 16px 0" }}>
             <div className="flex gap-3">
               <div className="flex flex-col items-center shrink-0">
                 <Avatar profile={rootProfile} name={rootName} size={40} />
