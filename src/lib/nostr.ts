@@ -6,15 +6,18 @@ import {
 } from "nostr-tools";
 import {
   Nip07Signer,
-  Nip46Signer,
   PrivateKeySigner,
   type NostrSigner,
-  type NostrConnectHandle,
 } from "@nostr-wot/signers";
+import {
+  NostrConnectSigner as CleanSigner,
+  type NostrConnectHandle as CleanHandle,
+} from "./nostr-connect-signer";
 import { DEFAULT_RELAY, FALLBACK_RELAYS, NEAR_RPC, NEAR_SOCIAL_CONTRACT } from "./constants";
 
-export type { Relay, NostrSigner, NostrConnectHandle };
-export { Nip07Signer, Nip46Signer, PrivateKeySigner };
+export type { Relay, NostrSigner };
+export type NostrConnectHandle = CleanHandle;
+export { Nip07Signer, PrivateKeySigner };
 
 // ── Connection states ──
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
@@ -42,7 +45,7 @@ export async function createNip46Signer(
   const opts: any = {};
   if (onAuthChallenge) opts.onAuthChallenge = onAuthChallenge;
   if (clientSecretKey) opts.clientSecretKey = clientSecretKey;
-  return Nip46Signer.fromBunkerUri(bunkerUri, opts);
+  return CleanSigner.fromBunkerUri(bunkerUri, opts);
 }
 
 // ── NIP-46 client-initiated (nostrconnect://) flow ──
@@ -54,11 +57,28 @@ export function startNostrConnectFlow(opts?: {
   const primary = opts?.relay || DEFAULT_RELAY;
   const relays = [primary, ...FALLBACK_RELAYS.filter(r => r !== primary)];
   console.log("[NIP-46] listening on relays:", relays);
-  return Nip46Signer.startNostrConnect({
+  return CleanSigner.startNostrConnect({
     relays,
     metadata: { name: "Legion Chat" },
     onAuthChallenge: opts?.onAuthChallenge,
   });
+}
+
+/**
+ * Restore a previously saved bunker session using fromSavedSession.
+ * Unlike fromBunkerUri, this does NOT send a 'connect' RPC — it reuses
+ * the existing client secret key and listens for RPC responses directly.
+ * Works even if the bunker doesn't respond to 'connect' (e.g. Primal).
+ */
+export function restoreBunkerSession(
+  bunkerPubkey: string,
+  clientNsec: string,
+  relayUrl?: string,
+): NostrSigner {
+  const primary = relayUrl || DEFAULT_RELAY;
+  const relays = [primary, ...FALLBACK_RELAYS.filter(r => r !== primary)];
+  console.log("[NIP-46] restoring bunker session:", bunkerPubkey.slice(0, 12), "relays:", relays);
+  return CleanSigner.fromSavedSession(bunkerPubkey, clientNsec, relays);
 }
 
 export function isMobile(): boolean {

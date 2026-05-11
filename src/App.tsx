@@ -24,6 +24,7 @@ import {
   subscribeChannel,
   publishWithAck,
   startNostrConnectFlow,
+  restoreBunkerSession,
   type NostrSigner,
   type NostrConnectHandle,
   type Relay,
@@ -147,8 +148,21 @@ function ChatApp() {
               setSigner(s); setSignerType("local"); setScreen("chat"); return;
             }
           }
-          // Note: bunker restore skipped — fromBunkerUri sends 'connect' RPC
-          // which Primal ignores, causing timeout. User re-pairs via nostrconnect instead.
+          // Restore bunker session using fromSavedSession (no 'connect' RPC needed)
+          if (parsed.type === "bunker" && parsed.clientNsec && parsed.uri) {
+            const bunkerUrl = new URL(parsed.uri);
+            const bunkerPk = bunkerUrl.hostname || bunkerUrl.pathname.replace(/^\/\//, "");
+            const relayParam = bunkerUrl.searchParams.get("relay") || undefined;
+            if (bunkerPk) {
+              const s = restoreBunkerSession(bunkerPk, parsed.clientNsec, relayParam);
+              const pk = await s.getPublicKey();
+              if (pk === existing.npub) {
+                setSigner(s); setSignerType("bunker"); setScreen("chat"); return;
+              }
+              console.warn("[RESTORE] pubkey mismatch, re-binding");
+              s.close?.();
+            }
+          }
         } catch (e: any) {
           console.warn("Failed to restore signer:", e.message);
         }
@@ -302,9 +316,19 @@ function ChatApp() {
       }
     };
 
+    // Refresh bunker signer subscription on mobile resume
+    const onVisRestore = () => {
+      if (document.visibilityState === "visible" && signer && _signerType === "bunker") {
+        console.log("[NIP-46] app resumed, refreshing restored signer subscription...");
+        (signer as any).refreshSubscription?.();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisRestore);
+
     init();
     return () => {
       closed = true;
+      document.removeEventListener("visibilitychange", onVisRestore);
       unsub?.();
       // Cleanup the reconnect handle
       const cleanup = (reconnectHandleRef.current as any)?._cleanup;
