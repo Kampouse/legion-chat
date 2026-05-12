@@ -33,6 +33,7 @@ import {
 } from "./lib/nostr";
 import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
 import { getPublicKey } from "nostr-tools/pure";
+import { hexToBytes } from "@noble/hashes/utils";
 import { nip19 } from "nostr-tools";
 import type { Message, Profile } from "./lib/types";
 import MessageList from "./components/MessageList";
@@ -150,8 +151,19 @@ function ChatApp() {
                 setSigner(s); setSignerType("local"); setScreen("chat"); return;
               }
             }
-            // Restore bunker session — use client nsec for LOCAL signing.
-            // The bunker is deaf after pairing, so we sign locally instead.
+            // Restore NDK bunker session — reconstruct signer from saved state
+            if (parsed.type === "ndk-bunker" && parsed.clientSecKey && parsed.bunkerPubkey) {
+              const { NdkNostrSigner } = await import("./lib/ndk-signer");
+              const s = new NdkNostrSigner({
+                clientSecretKey: hexToBytes(parsed.clientSecKey),
+                bunkerPubkey: parsed.bunkerPubkey,
+                relays: parsed.relays || ["wss://relay.powr.build", "wss://relay.primal.net"],
+                userPubkey: parsed.userPubkey,
+              });
+              console.log("[NIP-46] restored NDK bunker session");
+              setSigner(s); setSignerType("bunker"); setScreen("chat"); return;
+            }
+            // Legacy bunker restore — local signing with client nsec
             if (parsed.type === "bunker" && parsed.clientNsec) {
               const s = createPrivateKeySigner(parsed.clientNsec);
               setSigner(s); setSignerType("local"); setScreen("chat"); return;
@@ -465,11 +477,14 @@ function ChatApp() {
           await sendBindingTx(wallet.signAndSendTransaction, accountId!, myPubkey, relayUrl, proof);
         }
 
-        // Persist session
-        const nip46RelayStr = nip46Relays.map(r => `relay=${encodeURIComponent(r)}`).join("&");
+        // Persist session — save full signer state for restore on reload
+        const signerData = s.serialize();
         localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
-          type: "bunker",
-          uri: `bunker://${s.bunkerPubkey}?${nip46RelayStr}`,
+          type: "ndk-bunker",
+          clientSecKey: signerData.clientSecretKey,
+          bunkerPubkey: signerData.bunkerPubkey,
+          relays: signerData.relays,
+          userPubkey: signerData.userPubkey,
         }));
 
         setSigner(s); setMyPubkey(myPubkey); setSignerType("bunker"); setScreen("chat");
