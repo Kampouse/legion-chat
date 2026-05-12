@@ -7,7 +7,7 @@ import type { Profile } from "./lib/types";
 import { Loader2, ArrowLeft, Copy, Check, ExternalLink } from "lucide-react";
 
 // ── Relay config ──
-const RELAYS = [DEFAULT_RELAY, ...FALLBACK_RELAYS];
+const RELAYS = ["wss://nos.lol", "wss://relay.primal.net", "wss://relay.damus.io", "wss://relay.camelus.app"];
 
 // ── Lightweight event type (nostr-tools v2) ──
 interface NostrEvent {
