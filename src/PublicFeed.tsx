@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { SimplePool } from "nostr-tools/pool";
-import { FEED_CHANNEL_ID, DEFAULT_RELAY, FALLBACK_RELAYS } from "./lib/constants";
+import { FEED_CHANNEL_ID } from "./lib/constants";
 import type { Profile } from "./lib/types";
 import { Loader2 } from "lucide-react";
+import { useTheme } from "./hooks/useTheme";
 
 // ── Relay config ──
 const RELAYS = ["wss://nos.lol", "wss://relay.primal.net", "wss://relay.damus.io", "wss://relay.camelus.app"];
@@ -169,6 +170,7 @@ function PostCard({
 // ── Main PublicFeed component ──
 
 export default function PublicFeed() {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [events, setEvents] = useState<NostrEvent[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [loading, setLoading] = useState(true);
@@ -281,21 +283,32 @@ export default function PublicFeed() {
         }}
       >
         <div className="flex items-center gap-2">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm"
-            style={{ backgroundColor: "var(--accent)", color: "#000" }}
-          >
-            L
-          </div>
-          <span className="font-bold text-lg tracking-tight">Legion Chat</span>
+          <a href="/" className="flex items-center gap-2" style={{ textDecoration: "none", color: "inherit" }}>
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm"
+              style={{ backgroundColor: "var(--accent)", color: "#000" }}
+            >
+              L
+            </div>
+            <span className="font-bold text-lg tracking-tight">Legion Chat</span>
+          </a>
         </div>
-        <a
-          href="/chat"
-          className="px-4 py-1.5 rounded-full text-sm font-bold text-black"
-          style={{ backgroundColor: "var(--accent)" }}
-        >
-          Login
-        </a>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleTheme}
+            className="w-8 h-8 rounded-full flex items-center justify-center"
+            style={{ color: "var(--muted)" }}
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
+          </button>
+          <a
+            href="/chat"
+            className="px-4 py-1.5 rounded-full text-sm font-bold text-black"
+            style={{ backgroundColor: "var(--accent)" }}
+          >
+            Login
+          </a>
+        </div>
       </header>
 
       {/* Content */}
