@@ -1,7 +1,7 @@
 import { useMemo, Fragment, useState, useRef, useCallback, useEffect, type RefObject } from "react";
 import type { Message, Profile } from "../lib/types";
 import type { BindingCache } from "../lib/binding";
-import { Reply, ChevronDown } from "lucide-react";
+import { Reply, ChevronDown, Repeat2 } from "lucide-react";
 import ContextMenu from "./ContextMenu";
 
 // ── Content parsing with image embeds ──
@@ -204,6 +204,7 @@ interface MessageListProps {
   onCopy: (text: string) => void;
   loading?: boolean;
   searchQuery?: string;
+  quoteMessages?: Record<string, Message>;
 }
 
 export default function MessageList({
@@ -223,6 +224,7 @@ export default function MessageList({
   onCopy,
   loading = false,
   searchQuery = "",
+  quoteMessages = {},
 }: MessageListProps) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -474,6 +476,36 @@ export default function MessageList({
                       </div>
                     )}
                     {q ? <>{highlight(msg.content)}</> : <ParsedContent content={msg.content} />}
+                    {msg.quoteId && (() => {
+                      const quotedMsg = messages.find((m) => m.id === msg.quoteId) || quoteMessages[msg.quoteId];
+                      if (!quotedMsg) {
+                        return (
+                          <div className="mt-1.5 px-2 py-1.5 rounded-lg text-xs flex items-center gap-1.5" style={{ backgroundColor: "var(--quote-bg)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+                            <Repeat2 size={12} />
+                            <span>Shared post</span>
+                          </div>
+                        );
+                      }
+                      const qp = profiles[quotedMsg.pubkey];
+                      const qn = quotedMsg.sender || qp?.display_name || qp?.name || quotedMsg.pubkey.slice(0, 12) + "...";
+                      return (
+                        <div className="mt-1.5 px-2.5 py-2 rounded-lg" style={{ backgroundColor: "var(--quote-bg)", border: "1px solid var(--border)" }}>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <div className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold overflow-hidden shrink-0" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
+                              {qp?.picture ? (
+                                <img src={qp.picture} className="w-full h-full object-cover" alt="" />
+                              ) : (
+                                qn.slice(0, 2).toUpperCase()
+                              )}
+                            </div>
+                            <span className="font-semibold text-[11px] truncate" style={{ color: "var(--text)" }}>{qn}</span>
+                          </div>
+                          <p className="text-[11px] leading-normal line-clamp-3" style={{ color: "var(--muted)" }}>
+                            {quotedMsg.content.length > 150 ? quotedMsg.content.slice(0, 150) + "..." : quotedMsg.content}
+                          </p>
+                        </div>
+                      );
+                    })()}
                     {msg.failed && <span className="text-[9px] text-red-400 ml-1">(failed)</span>}
                     {isLastInGroup && (
                       <div className="text-right mt-0.5">

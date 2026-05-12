@@ -406,7 +406,7 @@ function ComposeModal({
 
 // ── Post Card ──
 function PostCard({
-  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, onNavigateToPost, onShare, onOpenThread, replies,
+  msg, myPubkey, profiles, allPosts, onReact, onReply, onQuote, onNavigateToPost, onShare, onShareToChat, onOpenThread, replies,
 }: {
   msg: Message;
   myPubkey: string;
@@ -417,6 +417,7 @@ function PostCard({
   onQuote: (msg: Message) => void;
   onNavigateToPost: (id: string) => void;
   onShare: (msg: Message) => void;
+  onShareToChat?: (msg: Message) => void;
   onOpenThread: (msg: Message) => void;
   replies: Message[];
 }) {
@@ -484,9 +485,14 @@ function PostCard({
                 <Repeat2 size={16} />
               </button>
               </div>
+              <div className="flex items-center gap-3">
+              <button onClick={(e) => { e.stopPropagation(); onShareToChat?.(msg); }} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                <Repeat2 size={16} />
+              </button>
               <button onClick={(e) => { e.stopPropagation(); onShare(msg); }} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
                 <Share2 size={16} />
               </button>
+              </div>
             </div>
 
             {msg.pending && <span className="text-[10px] mt-1 inline-block" style={{ color: "var(--muted)" }}>sending...</span>}
@@ -807,10 +813,11 @@ interface FeedViewProps {
   connState: string;
   scrollToPostId?: string | null;
   showToast: (msg: string) => void;
+  onShareToChat?: (msg: Message) => void;
 }
 
 export default function FeedView({
-  signer, myPubkey, profiles, bindingsRef, relay, connState, scrollToPostId, showToast,
+  signer, myPubkey, profiles, bindingsRef, relay, connState, scrollToPostId, showToast, onShareToChat,
 }: FeedViewProps) {
   void connState; // reserved for connection indicator
   const [posts, setPosts] = useState<Message[]>([]);
@@ -983,6 +990,7 @@ export default function FeedView({
             onQuote={(m) => setComposeTarget({ type: "quote", post: m })}
             onNavigateToPost={navigateToPost}
             onShare={handleShare}
+            onShareToChat={onShareToChat}
             onOpenThread={(m) => setThreadPost(m)}
             replies={repliesFor(msg.id)}
           />

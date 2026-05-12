@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import type { ConnectionState } from "../lib/nostr";
-import { X, SmilePlus, ArrowUp, Loader2 } from "lucide-react";
+import type { Message } from "../lib/types";
+import { X, SmilePlus, ArrowUp, Loader2, Repeat2 } from "lucide-react";
 import EmojiPicker from "./EmojiPicker";
 
 interface MessageInputProps {
@@ -14,6 +15,8 @@ interface MessageInputProps {
   setReplyTo: (v: string | null) => void;
   replyingTo: string;
   replyingToContent?: string;
+  sharedPost?: Message | null;
+  clearSharedPost?: () => void;
 }
 
 export default function MessageInput({
@@ -27,6 +30,8 @@ export default function MessageInput({
   setReplyTo,
   replyingTo,
   replyingToContent,
+  sharedPost,
+  clearSharedPost,
 }: MessageInputProps) {
   const [showEmoji, setShowEmoji] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -59,6 +64,22 @@ export default function MessageInput({
           </div>
           <button
             onClick={() => setReplyTo(null)}
+            className="ml-auto w-6 h-6 rounded-full flex items-center justify-center shrink-0 active:opacity-60"
+            style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+      {sharedPost && (
+        <div className="px-4 pt-2.5 pb-0 flex items-center gap-2 text-xs">
+          <Repeat2 size={14} style={{ color: "var(--accent)", flexShrink: 0 }} />
+          <div className="flex-1 min-w-0">
+            <span style={{ color: "var(--muted)" }}>Sharing post by <strong style={{ color: "var(--text)" }}>{sharedPost.sender || sharedPost.pubkey.slice(0, 12)}</strong></span>
+            <p className="truncate mt-0.5" style={{ color: "var(--muted)", maxWidth: "300px" }}>{sharedPost.content.slice(0, 80)}{sharedPost.content.length > 80 ? "..." : ""}</p>
+          </div>
+          <button
+            onClick={() => clearSharedPost?.()}
             className="ml-auto w-6 h-6 rounded-full flex items-center justify-center shrink-0 active:opacity-60"
             style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}
           >

@@ -127,6 +127,11 @@ function ChatApp() {
   // Reply
   const [replyTo, setReplyTo] = useState<{ id: string; content: string; sender: string } | null>(null);
 
+  // Shared post (feed -> chat)
+  const [sharedPost, setSharedPost] = useState<Message | null>(null);
+  // Accumulated map of shared feed posts for quote resolution in chat
+  const sharedPostsMap = useRef<Record<string, Message>>({});
+
   const accountId = wallet.accountId || null;
 
   useEffect(() => {
@@ -237,10 +242,13 @@ function ChatApp() {
               if (replyTag) {
                 replyToId = replyTag[1];
               }
+              const quoteTag = (event.tags || []).find((t: string[]) => t[0] === "q");
+              const quoteId = quoteTag?.[1];
               const msg: Message = {
                 id: event.id, pubkey: event.pubkey, content: event.content,
                 created_at: event.created_at, sender,
                 ...(replyToId ? { replyToId } : {}),
+                ...(quoteId ? { quoteId } : {}),
               };
               collectedIds.push(event.id);
               setMessages((prev) => {
@@ -601,11 +609,15 @@ function ChatApp() {
     sendScrollRef.current = true;
     const currentReplyTo = replyTo;
     setReplyTo(null);
+    const currentSharedPost = sharedPost;
+    setSharedPost(null);
+    if (currentSharedPost) sharedPostsMap.current[currentSharedPost.id] = currentSharedPost;
     const optimisticId = `pending-${Date.now()}`;
     const optimistic: Message = {
       id: optimisticId, pubkey: myPubkey, content,
       created_at: Math.floor(Date.now() / 1000), sender: accountId!, pending: true,
       ...(currentReplyTo ? { replyToId: currentReplyTo.id, replyToContent: currentReplyTo.content, replyToSender: currentReplyTo.sender } : {}),
+      ...(currentSharedPost ? { quoteId: currentSharedPost.id } : {}),
     };
     setMessages((prev) => {
       const list = [...prev, optimistic];
@@ -618,7 +630,10 @@ function ChatApp() {
     });
     try {
       console.log("[SEND] calling signChannelMessage...");
-      const signPromise = signChannelMessage(signer, content, CHANNEL_ID, currentReplyTo);
+      const currentQuoteId = currentSharedPost?.id;
+      const signPromise = signChannelMessage(signer, content, CHANNEL_ID, currentReplyTo, {
+        ...(currentQuoteId ? { quoteId: currentQuoteId } : {}),
+      });
       const event = await Promise.race([
         signPromise,
         new Promise<never>((_, reject) =>
@@ -900,6 +915,7 @@ function ChatApp() {
                 connState={connState}
                 scrollToPostId={deepLinkPostId}
                 showToast={showToast}
+                onShareToChat={(msg) => { sharedPostsMap.current[msg.id] = msg; setSharedPost(msg); setActiveTab("chat"); }}
               />
             </div>
             <div style={{ display: activeTab === "chat" ? "contents" : "none" }}>
@@ -920,6 +936,7 @@ function ChatApp() {
               onCopy={handleCopy}
               loading={messagesLoading}
               searchQuery={searchQuery}
+              quoteMessages={sharedPost ? { ...sharedPostsMap.current, [sharedPost.id]: sharedPost } : sharedPostsMap.current}
             />
             {error && <div className="px-4 py-1.5 text-xs text-red-400 text-center">{error}</div>}
             <MessageInput
@@ -933,6 +950,8 @@ function ChatApp() {
               setReplyTo={() => setReplyTo(null)}
               replyingTo={replyTo ? replyTo.sender : ""}
               replyingToContent={replyTo ? replyTo.content : undefined}
+              sharedPost={sharedPost}
+              clearSharedPost={() => setSharedPost(null)}
             />
             </div>
           </div>
