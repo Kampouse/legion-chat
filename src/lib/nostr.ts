@@ -13,6 +13,11 @@ import {
   NostrConnectSigner as CleanSigner,
   type NostrConnectHandle as CleanHandle,
 } from "./nostr-connect-signer";
+import {
+  startNdkConnect,
+  NdkNostrSigner,
+  type NdkConnectHandle,
+} from "./ndk-signer";
 import { DEFAULT_RELAY, FALLBACK_RELAYS, NEAR_RPC, NEAR_SOCIAL_CONTRACT } from "./constants";
 
 export type { Relay, NostrSigner };
@@ -52,16 +57,24 @@ export async function createNip46Signer(
 
 export function startNostrConnectFlow(opts?: {
   relay?: string;
+  fallbackRelays?: string[];
+  perms?: string;
+  metadata?: { name?: string; url?: string; description?: string; image?: string };
   onAuthChallenge?: (url: string) => void;
 }): NostrConnectHandle {
   const primary = opts?.relay || DEFAULT_RELAY;
-  const relays = [primary, ...FALLBACK_RELAYS.filter(r => r !== primary)];
-  console.log("[NIP-46] listening on relays:", relays);
-  return CleanSigner.startNostrConnect({
+  const fallbacks = opts?.fallbackRelays || FALLBACK_RELAYS.filter(r => r !== primary);
+  const relays = [primary, ...fallbacks];
+  console.log("[NIP-46] using NDK signer, relays:", relays);
+  // Use NDK's battle-tested NIP-46 signer
+  const handle = startNdkConnect({
     relays,
-    metadata: { name: "Legion Chat" },
+    perms: opts?.perms,
+    metadata: opts?.metadata,
     onAuthChallenge: opts?.onAuthChallenge,
   });
+  // Adapt NdkConnectHandle → NostrConnectHandle (same shape, different type)
+  return handle as any;
 }
 
 /**
@@ -73,10 +86,13 @@ export function startNostrConnectFlow(opts?: {
 export function restoreBunkerSession(
   bunkerPubkey: string,
   clientNsec: string,
-  relayUrl?: string,
+  _legacyRelay?: string,
+  explicitRelays?: string[],
 ): NostrSigner {
-  const primary = relayUrl || DEFAULT_RELAY;
-  const relays = [primary, ...FALLBACK_RELAYS.filter(r => r !== primary)];
+  // Use explicit NIP-46 relays if provided (from saved session), otherwise fallback
+  const relays = explicitRelays?.length
+    ? explicitRelays
+    : ["wss://relay.primal.net", "wss://relay.camelus.app", "wss://nostr-01.yakihonne.com"];
   console.log("[NIP-46] restoring bunker session:", bunkerPubkey.slice(0, 12), "relays:", relays);
   return CleanSigner.fromSavedSession(bunkerPubkey, clientNsec, relays);
 }

@@ -32,7 +32,7 @@ interface PendingEntry {
 /** Options for the nostrconnect:// pairing flow. */
 export interface NostrConnectOpts {
   relays: string[];
-  metadata?: { name?: string; url?: string; description?: string };
+  metadata?: { name?: string; url?: string; description?: string; image?: string };
   perms?: string;
   onAuthChallenge?: (url: string) => void;
   /** Time budget waiting for the bunker to scan + connect. Default 5 min. */
@@ -83,6 +83,61 @@ export class NostrConnectSigner {
   #eoseTimer: ReturnType<typeof setTimeout> | null = null;
   #onAuthChallenge?: (url: string) => void;
   #requestTimeout: number;
+  #wakeLock: { release: () => void } | null = null;
+  #closed = false;
+  #realPubkeyPromise: Promise<string | null> = Promise.resolve(null);
+
+  // ── Wake Lock (keeps tab alive on mobile during RPCs) ──────────────
+
+  /** Request a screen wake lock or start silent audio to prevent iOS/Android
+   *  from suspending the tab while waiting for RPC responses. */
+  async #acquireWakeLock(): Promise<void> {
+    if (this.#wakeLock) return; // already held
+    console.log("[NIP-46] wake-lock: acquiring...");
+
+    // Try Screen Wake Lock API first (Chrome Android, Safari 16.4+)
+    if ("wakeLock" in navigator) {
+      try {
+        const lock = await (navigator as any).wakeLock.request("screen");
+        this.#wakeLock = {
+          release: () => {
+            lock.release();
+            console.log("[NIP-46] wake-lock: screen wake lock released");
+          },
+        };
+        console.log("[NIP-46] wake-lock: screen wake lock acquired");
+        return;
+      } catch { /* fall through to audio */ }
+    }
+
+    // Fallback: silent audio (works on iOS Safari)
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0; // silent
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      this.#wakeLock = {
+        release: () => {
+          osc.stop();
+          ctx.close();
+          console.log("[NIP-46] wake-lock: silent audio released");
+        },
+      };
+      console.log("[NIP-46] wake-lock: silent audio acquired");
+    } catch (e: any) {
+      console.log("[NIP-46] wake-lock: failed:", e.message);
+    }
+  }
+
+  #releaseWakeLock(): void {
+    if (this.#wakeLock) {
+      this.#wakeLock.release();
+      this.#wakeLock = null;
+    }
+  }
 
   // ── Constructor (private — use static factories) ──────────────────
 
@@ -129,6 +184,16 @@ export class NostrConnectSigner {
     return this.#rpc("get_public_key", []);
   }
 
+  /** Send connect RPC to the bunker (for re-establishing sessions). */
+  async sendConnect(params: string[]): Promise<string> {
+    return this.#rpc("connect", params);
+  }
+
+  /** Get the user's real Nostr pubkey. Fires during pairing's 1s window. */
+  async getRealPubkey(): Promise<string | null> {
+    return this.#realPubkeyPromise;
+  }
+
   /**
    * Send sign_event RPC to the bunker.
    *
@@ -136,8 +201,11 @@ export class NostrConnectSigner {
    * knows the user's key from the pairing session.
    */
   async signEvent(event: EventTemplate): Promise<NostrEvent> {
+    console.log("[NIP-46] signEvent called, kind:", event.kind, "bunker:", this.#bunkerPk?.slice(0,12));
     const result = await this.#rpc("sign_event", [JSON.stringify(event)]);
-    return JSON.parse(result) as NostrEvent;
+    const signed = JSON.parse(result) as NostrEvent;
+    console.log("[NIP-46] signEvent result, id:", signed.id?.slice(0,12));
+    return signed;
   }
 
   /** Send nip44_encrypt RPC to the bunker. */
@@ -153,12 +221,25 @@ export class NostrConnectSigner {
   // ── Subscription management ───────────────────────────────────────
 
   /** Close old sub, open fresh one (for mobile visibilitychange). */
-  refreshSubscription(): void {
+  async refreshSubscription(): Promise<void> {
+    // When resuming from background, poll for responses to pending RPCs FIRST.
+    // The bunker may have responded while we were backgrounded.
+    if (this.#pending.size > 0) {
+      console.log("[NIP-46] refreshSubscription:", this.#pending.size, "pending RPCs — polling for responses");
+      const clientPk = getPublicKey(this.#clientSk);
+      await this.#pollForAllPending(clientPk);
+      // If all pending resolved, continue to refresh
+      if (this.#pending.size > 0) {
+        console.log("[NIP-46] refreshSubscription: still", this.#pending.size, "pending — refreshing sub anyway");
+      }
+    }
     this.#openSubscription();
   }
 
   /** Tear down the subscription and reject all pending requests. */
   async close(): Promise<void> {
+    this.#closed = true;
+    this.#releaseWakeLock();
     this.#subCloser?.close();
     this.#subCloser = null;
     for (const [, p] of this.#pending) {
@@ -201,14 +282,17 @@ export class NostrConnectSigner {
     const requestTimeout = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
     const pairTimeout = opts.pairTimeoutMs ?? DEFAULT_PAIR_TIMEOUT;
 
-    // Step 3: Build nostrconnect URI
+    // Step 3: Build nostrconnect URI (NIP-46 spec format)
     const params = new URLSearchParams();
     for (const r of opts.relays) params.append("relay", r);
     params.set("secret", secret);
     if (opts.perms) params.set("perms", opts.perms);
-    if (opts.metadata) params.set("metadata", JSON.stringify(opts.metadata));
+    if (opts.metadata?.name) params.set("name", opts.metadata.name);
+    if (opts.metadata?.url) params.set("url", opts.metadata.url);
+    if (opts.metadata?.image) params.set("image", opts.metadata.image);
 
     const uri = `nostrconnect://${clientPk}?${params.toString()}`;
+    console.log("[NIP-46] nostrconnect URI:", uri);
 
     // Mutable state for the pairing flow
     let cancelled = false;
@@ -231,13 +315,15 @@ export class NostrConnectSigner {
 
     // Step 4: Pairing subscription with 5-min lookback
     const now = Math.floor(Date.now() / 1000);
+    const pairFilter = {
+      kinds: [KIND_BUNKER],
+      "#p": [clientPk],
+      since: now - 300,
+    };
+    console.log("[NIP-46] pairing sub: relays:", opts.relays, "filter:", JSON.stringify(pairFilter));
     const pairSub = pool.subscribeMany(
       opts.relays,
-      {
-        kinds: [KIND_BUNKER],
-        "#p": [clientPk],
-        since: now - 300,
-      },
+      pairFilter,
       {
         onevent: async (event: Event) => {
           if (cancelled) return;
@@ -270,18 +356,48 @@ export class NostrConnectSigner {
                   requestTimeout,
                 );
 
-                // Step 8: Persistent subscription — NO #p filter
+                // Open persistent subscription FIRST — needed before RPCs can work
                 signer.#openSubscription();
 
-                // Step 9: Wait for EOSE
-                await signer.#eosePromise;
+                // ── NIP-46 spec flow (nostrconnect://) ──
+                // After pairing, client MUST:
+                // 1. Send `connect` RPC → establishes session in bunker
+                // 2. Send `get_public_key` → learn user's real pubkey
+                // Without step 1, the bunker has no active session and drops all RPCs.
 
-                // Step 10: Send ACK
+                // Step 1: connect RPC — [remote-signer-pubkey, secret, perms]
+                console.log("[NIP-46] sending connect RPC to establish session...");
+                const connectPromise = signer.#rpc("connect", [bunkerPk, secret, opts.perms || ""])
+                  .then((result: string) => {
+                    console.log("[NIP-46] connect RPC response:", result);
+                    return result;
+                  })
+                  .catch((e: any) => {
+                    console.log("[NIP-46] connect RPC failed:", e.message);
+                    return null;
+                  });
+
+                // Step 2: get_public_key — fires AFTER connect resolves
+                signer.#realPubkeyPromise = connectPromise.then(async (_connectResult: string | null) => {
+                  console.log("[NIP-46] connect done, now sending get_public_key...");
+                  try {
+                    const pk = await signer.#rpc("get_public_key", []);
+                    console.log("[NIP-46] get_public_key returned:", pk?.slice(0,12));
+                    return pk;
+                  } catch (e: any) {
+                    console.log("[NIP-46] get_public_key failed:", e.message);
+                    return null;
+                  }
+                });
+
+                console.log("[NIP-46] connect RPC fired inside pairing handler");
+
+                // Send ACK (non-blocking — fire and forget)
                 if (parsed.id) {
-                  await signer.#sendAck(bunkerPk, parsed.id);
+                  signer.#sendAck(bunkerPk, parsed.id).catch(() => {});
                 }
 
-                // Step 11: Done
+                // NOW resolve — App.tsx's .then() will await getRealPubkey()
                 signerRef = signer;
                 pairResolve?.(signer);
               } catch (err) {
@@ -428,18 +544,25 @@ export class NostrConnectSigner {
       this.#eoseResolve?.();
     }, 10_000);
 
+    const clientPk = getPublicKey(this.#clientSk); // returns hex string
+    const filter = {
+      kinds: [KIND_BUNKER],
+      authors: [this.#bunkerPk],
+      "#p": [clientPk],
+      // Match NDK exactly: authors + #p, NO since filter.
+    };
+    console.log("[NIP-46] #openSubscription: relays:", this.#relays, "filter:", JSON.stringify(filter));
+
     const closer = this.#pool.subscribeMany(
       this.#relays,
-      {
-        kinds: [KIND_BUNKER],
-        authors: [this.#bunkerPk],
-        "#p": [getPublicKey(this.#clientSk)],
-      },
+      filter,
       {
         onevent: (event: Event) => {
+          console.log("[NIP-46] sub: got event from", event.pubkey.slice(0,12), "created_at:", event.created_at, "tags:", JSON.stringify(event.tags), "content_len:", event.content?.length);
           this.#onMessage(event).catch(() => {});
         },
         oneose: () => {
+          console.log("[NIP-46] #openSubscription: EOSE received — subscription ready");
           if (this.#eoseTimer) {
             clearTimeout(this.#eoseTimer);
             this.#eoseTimer = null;
@@ -463,7 +586,6 @@ export class NostrConnectSigner {
    *  5. If result: resolve pending
    */
   async #onMessage(event: Event): Promise<void> {
-    console.log("[NIP-46] #onMessage: from", event.pubkey.slice(0,12), "pending:", this.#pending.size);
     // Step 1: Decrypt
     let payload: string;
     try {
@@ -473,6 +595,7 @@ export class NostrConnectSigner {
       );
       payload = nip44.v2.decrypt(event.content, conv);
     } catch {
+      console.log("[NIP-46] #onMessage: decrypt failed from", event.pubkey.slice(0,12));
       return; // Can't decrypt — not for us
     }
 
@@ -481,14 +604,23 @@ export class NostrConnectSigner {
     try {
       parsed = JSON.parse(payload);
     } catch {
+      console.log("[NIP-46] #onMessage: parse failed");
       return;
     }
 
-    if (!parsed.id) return;
+    if (!parsed.id) {
+      console.log("[NIP-46] #onMessage: no id, dropping");
+      return;
+    }
 
     // Step 3: Look up pending
     const pending = this.#pending.get(parsed.id);
-    if (!pending) return; // Stale — silently drop
+    if (!pending) {
+      console.log("[NIP-46] #onMessage: no pending for id", parsed.id.slice(0,8), "result:", parsed.result?.slice(0,20), "error:", parsed.error, "(pending:", this.#pending.size, "ids:", [...this.#pending.keys()].map(k => k.slice(0,8)).join(","), ")");
+      return; // Stale — silently drop
+    }
+
+    console.log("[NIP-46] #onMessage: matched id", parsed.id.slice(0,8), "result:", parsed.result?.slice(0,30), "error:", parsed.error);
 
     // Auth URL challenge: surface to user, keep request pending
     if (parsed.result === "auth_url" && parsed.error) {
@@ -500,6 +632,7 @@ export class NostrConnectSigner {
 
     this.#pending.delete(parsed.id);
     clearTimeout(pending.timer);
+    if (this.#pending.size === 0) this.#releaseWakeLock();
 
     // Step 4-5: Resolve or reject
     if (parsed.error) {
@@ -522,8 +655,15 @@ export class NostrConnectSigner {
    *  7. Return promise that resolves when response with matching ID arrives
    */
   async #rpc(method: string, params: string[]): Promise<string> {
-    // EOSE gate — don't send RPCs before the subscription is ready
-    await this.#eosePromise;
+    if (this.#closed) throw new Error("Signer closed");
+
+    // EOSE gate — skip during the initial pairing window.
+    // The bunker is only alive for ~1 second; waiting for EOSE burns that window.
+    // The pairing subscription is already running and will deliver responses.
+    if (!this.#bunkerPk) {
+      // Not yet paired — must wait for pairing to complete
+      await this.#eosePromise;
+    }
     console.log("[NIP-46] #rpc: eose gate passed for", method);
 
     if (!this.#bunkerPk) {
@@ -555,26 +695,154 @@ export class NostrConnectSigner {
     );
 
     // Step 5: Register pending BEFORE publish (race condition prevention)
+    // Primal's bunker uses HTTP polling + push notifications — the app may be
+    // backgrounded. Retry the RPC every 15s for up to 5 minutes to give the
+    // push notification time to wake the app and process the request.
+    // Also poll via querySync as a fallback — relays may not persist 24133
+    // events, but the real-time subscription can miss events on WebSocket reconnect.
+    // Acquire wake lock to keep tab alive on mobile while waiting.
+    this.#acquireWakeLock();
+    const INITIAL_TIMEOUT = 15_000; // 15s per attempt
+    const MAX_TOTAL = 300_000;      // 5 min total (bunker may need push notification to wake app)
+    const startTime = Date.now();
+    let attempt = 0;
+    const clientPk = getPublicKey(this.#clientSk);
+
     const promise = new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.#pending.delete(id);
-        reject(
-          new Error(
-            `NIP-46 ${method} timed out after ${this.#requestTimeout}ms (pending was ${this.#pending.size})`,
-          ),
-        );
-      }, this.#requestTimeout);
-      this.#pending.set(id, { resolve, reject, timer });
+      const scheduleRetry = () => {
+        const elapsed = Date.now() - startTime;
+        if (elapsed >= MAX_TOTAL) {
+          this.#pending.delete(id);
+          if (this.#pending.size === 0) this.#releaseWakeLock();
+          reject(
+            new Error(
+              `NIP-46 ${method} timed out after ${elapsed}ms (${attempt} attempts)`,
+            ),
+          );
+          return;
+        }
+
+        attempt++;
+        const remaining = MAX_TOTAL - (Date.now() - startTime);
+        const timeout = Math.min(INITIAL_TIMEOUT, remaining);
+        console.log(`[NIP-46] #rpc: ${method} attempt ${attempt}, waiting ${timeout}ms (elapsed: ${elapsed}ms)`);
+
+        const timer = setTimeout(async () => {
+          // Check if response arrived via polling fallback
+          const polled = await this.#pollForResponse(clientPk, method, id);
+          if (polled) {
+            console.log(`[NIP-46] #rpc: ${method} got response via poll!`);
+            this.#pending.delete(id);
+            resolve(polled);
+            return;
+          }
+
+          // No response yet — re-publish to relays (bunker may have missed it)
+          this.#replayRpc(reqEvent, method, attempt);
+          scheduleRetry();
+        }, timeout);
+
+        this.#pending.set(id, { resolve, reject, timer });
+      };
+      scheduleRetry();
     });
 
     // Step 6: Publish to all relays
-    console.log("[NIP-46] #rpc: publishing", method, "id:", id, "to relays:", this.#relays, "event id:", reqEvent.id?.slice(0,12), "pending:", this.#pending.size);
+    console.log("[NIP-46] #rpc: publishing", method, "id:", id, "to relays:", this.#relays, "event id:", reqEvent.id?.slice(0,12), "event pubkey:", reqEvent.pubkey?.slice(0,12), "tags:", JSON.stringify(reqEvent.tags), "pending:", this.#pending.size);
     const pubResults = await Promise.allSettled(this.#pool.publish(this.#relays, reqEvent));
-    const pubSummary = pubResults.map(r => r.status === "fulfilled" ? "ok" : r.reason?.message?.slice(0,50));
-    console.log("[NIP-46] #rpc: publish results:", pubSummary);
+    const pubSummary = pubResults.map((r, i) => {
+      const relay = this.#relays[i]?.split("//")[1] || i;
+      if (r.status === "fulfilled") return `${relay}:ok`;
+      const msg = r.reason?.message || String(r.reason);
+      return `${relay}:FAIL(${msg.slice(0,40)})`;
+    });
+    const okCount = pubResults.filter(r => r.status === "fulfilled").length;
+    console.log(`[NIP-46] #rpc: publish: ${okCount}/${pubResults.length} ok —`, pubSummary);
 
     // Step 7: Return promise
     return promise;
+  }
+
+  /**
+   * Poll relays via querySync for responses to ALL pending RPCs.
+   * Called on page resume from background — catches responses that arrived
+   * while the WebSocket subscription was dead.
+   */
+  async #pollForAllPending(clientPk: string): Promise<void> {
+    try {
+      const events = await this.#pool.querySync(this.#relays, {
+        kinds: [KIND_BUNKER],
+        authors: [this.#bunkerPk],
+        "#p": [clientPk],
+        limit: 20,
+      });
+      if (events.length === 0) return;
+
+      console.log(`[NIP-46] #pollAll: found ${events.length} bunker events`);
+      const conv = nip44.v2.utils.getConversationKey(this.#clientSk, this.#bunkerPk);
+
+      for (const event of events) {
+        try {
+          const plaintext = nip44.v2.decrypt(event.content, conv);
+          const parsed = JSON.parse(plaintext);
+          const entry = this.#pending.get(parsed.id);
+          if (entry) {
+            console.log(`[NIP-46] #pollAll: resolved pending ${parsed.id?.slice(0,12)} result=${parsed.result?.slice(0,20)}`);
+            clearTimeout(entry.timer);
+            this.#pending.delete(parsed.id);
+            if (parsed.error) {
+              entry.reject(new Error(`NIP-46 error: ${parsed.error}`));
+            } else {
+              entry.resolve(parsed.result);
+            }
+          }
+        } catch { /* skip unparseable */ }
+      }
+    } catch (e: any) {
+      console.log(`[NIP-46] #pollAll: error: ${e.message}`);
+    }
+  }
+
+  /** Re-publish an RPC event to relays (for retry when bunker doesn't respond). */
+  #replayRpc(reqEvent: Event, method: string, attempt: number) {
+    console.log(`[NIP-46] #rpc: re-publishing ${method} (attempt ${attempt})`);
+    Promise.allSettled(this.#pool.publish(this.#relays, reqEvent)).then(results => {
+      const summary = results.map(r => r.status === "fulfilled" ? "ok" : "fail");
+      console.log(`[NIP-46] #rpc: re-publish results (attempt ${attempt}):`, summary);
+    });
+  }
+
+  /**
+   * Poll relays via querySync for a response to an RPC.
+   * Fallback for when the real-time subscription misses events.
+   */
+  async #pollForResponse(clientPk: string, method: string, rpcId: string): Promise<string | null> {
+    try {
+      const events = await this.#pool.querySync(this.#relays, {
+        kinds: [KIND_BUNKER],
+        authors: [this.#bunkerPk],
+        "#p": [clientPk],
+        limit: 5,
+      });
+      if (events.length === 0) return null;
+
+      console.log(`[NIP-46] #poll: found ${events.length} events from bunker`);
+      const conv = nip44.v2.utils.getConversationKey(this.#clientSk, this.#bunkerPk);
+
+      for (const event of events) {
+        try {
+          const plaintext = nip44.v2.decrypt(event.content, conv);
+          const parsed = JSON.parse(plaintext);
+          console.log(`[NIP-46] #poll: decrypted event id=${parsed.id?.slice(0,12)} result=${parsed.result?.slice(0,20)} error=${parsed.error}`);
+          if (parsed.id === rpcId && parsed.result !== undefined) {
+            return parsed.result;
+          }
+        } catch { /* skip unparseable */ }
+      }
+    } catch (e: any) {
+      console.log(`[NIP-46] #poll: error: ${e.message}`);
+    }
+    return null;
   }
 
   /**

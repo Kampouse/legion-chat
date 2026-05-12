@@ -190,16 +190,40 @@ export function ConnectQRScreen({
   useEffect(() => {
     const origLog = console.log;
     const origErr = console.error;
+    const origWarn = console.warn;
     const addLog = (prefix: string, args: any[]) => {
       const text = args.map((a: any) => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
-      if (text.includes("[NIP-46")) {
-        setLogs(prev => [...prev.slice(-30), `${new Date().toLocaleTimeString().slice(0,8)} ${prefix} ${text}`]);
+      if (text.includes("[NIP-46") || text.includes("NDK") || text.includes("nostrconnect") || text.includes("blockUntilReady")) {
+        setLogs(prev => [...prev.slice(-50), `${new Date().toLocaleTimeString().slice(0,8)} ${prefix} ${text}`]);
       }
     };
     console.log = (...args: any[]) => { origLog(...args); addLog("LOG", args); };
     console.error = (...args: any[]) => { origErr(...args); addLog("ERR", args); };
-    return () => { console.log = origLog; console.error = origErr; };
+    console.warn = (...args: any[]) => { origWarn(...args); addLog("WRN", args); };
+    return () => { console.log = origLog; console.error = origErr; console.warn = origWarn; };
   }, []);
+
+  // Log the URI we received (fires on mount)
+  useEffect(() => {
+    // Enable NDK debug output in browser console
+    try { (localStorage as any).debug = 'ndk:*'; } catch {}
+    if (uri) {
+      setLogs(prev => [...prev.slice(-50), `${new Date().toLocaleTimeString().slice(0,8)} UI QR mounted, URI len=${uri.length}`]);
+      console.log("[NIP-46] ConnectQRScreen mounted with URI:", uri.slice(0, 80) + "...");
+    }
+  }, [uri]);
+
+  // Monitor the NDK pairing promise
+  useEffect(() => {
+    const h = (window as any).__nip46Handle;
+    if (!h) return;
+    setLogs(prev => [...prev.slice(-50), `${new Date().toLocaleTimeString().slice(0,8)} UI monitoring pairing promise...`]);
+    h.ready.then((s: any) => {
+      setLogs(prev => [...prev.slice(-50), `${new Date().toLocaleTimeString().slice(0,8)} UI PAIRED! pubkey=${s._userPubkey?.slice(0,12)} bunker=${s.bunkerPubkey?.slice(0,12)}`]);
+    }).catch((e: any) => {
+      setLogs(prev => [...prev.slice(-50), `${new Date().toLocaleTimeString().slice(0,8)} UI FAILED: ${e.message}`]);
+    });
+  }, [uri]);
 
   // Timer + visibility tracking
   useEffect(() => {
@@ -262,7 +286,20 @@ export function ConnectQRScreen({
       {/* Debug log */}
       {logs.length > 0 && (
         <div className="mt-3 text-left">
-          <p className="text-[10px] font-bold mb-1" style={{ color: "var(--muted)" }}>Debug Log:</p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[10px] font-bold" style={{ color: "var(--muted)" }}>Debug Log:</p>
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(logs.join("\n"));
+                } catch { /* fallback */ }
+              }}
+              className="text-[10px] px-2 py-0.5 rounded font-medium border"
+              style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+            >
+              Copy Logs
+            </button>
+          </div>
           <div className="max-h-40 overflow-y-auto rounded-lg p-2 text-[10px] font-mono"
                style={{ backgroundColor: "rgba(0,0,0,0.4)" }}>
             {logs.map((l, i) => (

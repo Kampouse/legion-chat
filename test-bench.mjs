@@ -26,8 +26,8 @@ import { NostrConnectSigner } from "./src/lib/nostr-connect-signer.ts";
 // ── Config ──────────────────────────────────────────────────────────
 
 const RELAYS = [
-  "wss://nos.lol",
   "wss://relay.primal.net",
+  "wss://nos.lol",
 ];
 
 const CHANNEL_ID = "a2468118fc38ecb16d6a03b05290e2a0fa3222f87527591e27d8a17a52268714";
@@ -119,6 +119,8 @@ function startBunker(bunkerSk, bunkerPk, userSk, userPk) {
 
           const respPayload = JSON.stringify({ id: parsed.id, result, error });
           const respCt = nip44.v2.encrypt(respPayload, nip44.v2.utils.getConversationKey(bunkerSk, event.pubkey));
+          // Include #p tag matching NDK's expected filter (authors + #p).
+          // Real bunkers (including Primal) include #p on response events.
           const respEvent = finalizeEvent(
             { kind: KIND, created_at: Math.floor(Date.now() / 1000), tags: [["p", event.pubkey]], content: respCt },
             bunkerSk,

@@ -1,22 +1,24 @@
-import { JsonRpcProvider, actions } from "near-api-js";
-import { SBT_CONTRACT, KV_ACCOUNT, NEAR_RPC } from "./constants";
+import { actions } from "near-api-js";
+import { SBT_CONTRACT, KV_ACCOUNT } from "./constants";
+import { createMainnetClient, callNftView } from "near-balancer";
 
-export const provider = new JsonRpcProvider({ url: NEAR_RPC });
-
+export const rpcClient = createMainnetClient({ retries: 3, timeout: 10_000 });
 export const SBT_CONTRACTS = [SBT_CONTRACT, "initiate.nearlegion.near"];
 
 export async function checkSbt(accountId: string): Promise<boolean> {
   try {
     for (const contractId of SBT_CONTRACTS) {
-      const result = await provider.callFunction({
+      const result = await callNftView<any[]>(
+        rpcClient,
         contractId,
-        method: "nft_tokens_for_owner",
-        args: { account_id: accountId },
-      });
+        "nft_tokens_for_owner",
+        { account_id: accountId },
+      );
       if (Array.isArray(result) && result.length > 0) return true;
     }
     return false;
-  } catch {
+  } catch (e: any) {
+    console.warn("[SBT] check failed:", e?.message || e);
     return false;
   }
 }

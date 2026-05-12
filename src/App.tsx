@@ -32,6 +32,8 @@ import {
   type ReconnectHandle,
 } from "./lib/nostr";
 import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
+import { getPublicKey } from "nostr-tools/pure";
+import { nip19 } from "nostr-tools";
 import type { Message, Profile } from "./lib/types";
 import MessageList from "./components/MessageList";
 import MessageInput from "./components/MessageInput";
@@ -68,6 +70,7 @@ function ChatApp() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const sendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [connState, setConnState] = useState<ConnectionState>("disconnected");
   const [messagesLoading, setMessagesLoading] = useState(true);
@@ -130,52 +133,39 @@ function ChatApp() {
   useEffect(() => {
     if (screen !== "checking" || !accountId) return;
     (async () => {
-      const hasSbt = await checkSbt(accountId);
-      if (!hasSbt) { setScreen("no-sbt"); return; }
+      // Check for existing binding FIRST — if user already bound, skip SBT check
       const existing = await fetchBinding(accountId);
-      if (!existing) { setScreen("bind"); return; }
-      setMyPubkey(existing.npub);
-      setRelayUrl(existing.relay || DEFAULT_RELAY);
-      const savedSigner = localStorage.getItem(`legion:signer:${accountId}`);
-      if (savedSigner) {
-        try {
-          const parsed = JSON.parse(savedSigner);
-          if (parsed.type === "local" && parsed.nsec) {
-            const s = createPrivateKeySigner(parsed.nsec);
-            const pk = await s.getPublicKey();
-            if (pk === existing.npub) {
-              setNsec(parsed.nsec);
-              setSigner(s); setSignerType("local"); setScreen("chat"); return;
-            }
-          }
-          // Restore bunker session using fromSavedSession (no 'connect' RPC needed)
-          if (parsed.type === "bunker" && parsed.clientNsec && parsed.uri) {
-            const bunkerUrl = new URL(parsed.uri);
-            const bunkerPk = bunkerUrl.hostname || bunkerUrl.pathname.replace(/^\/\//, "");
-            const relayParam = bunkerUrl.searchParams.get("relay") || undefined;
-            if (bunkerPk) {
-              const s = restoreBunkerSession(bunkerPk, parsed.clientNsec, relayParam);
+      if (existing) {
+        setMyPubkey(existing.npub);
+        setRelayUrl(existing.relay || DEFAULT_RELAY);
+        const savedSigner = localStorage.getItem(`legion:signer:${accountId}`);
+        if (savedSigner) {
+          try {
+            const parsed = JSON.parse(savedSigner);
+            if (parsed.type === "local" && parsed.nsec) {
+              const s = createPrivateKeySigner(parsed.nsec);
               const pk = await s.getPublicKey();
               if (pk === existing.npub) {
-                setSigner(s); setSignerType("bunker"); setScreen("chat"); return;
+                setNsec(parsed.nsec);
+                setSigner(s); setSignerType("local"); setScreen("chat"); return;
               }
-              console.warn("[RESTORE] pubkey mismatch, re-binding");
-              s.close?.();
             }
+            // Restore bunker session — use client nsec for LOCAL signing.
+            // The bunker is deaf after pairing, so we sign locally instead.
+            if (parsed.type === "bunker" && parsed.clientNsec) {
+              const s = createPrivateKeySigner(parsed.clientNsec);
+              setSigner(s); setSignerType("local"); setScreen("chat"); return;
+            }
+          } catch (e: any) {
+            console.warn("Failed to restore signer:", e.message);
           }
-        } catch (e: any) {
-          console.warn("Failed to restore signer:", e.message);
         }
+        // No valid saved signer but have binding — show bind screen to re-link
+        setScreen("bind"); return;
       }
-      if (hasNostrExtension()) {
-        try {
-          const s = createNip07Signer();
-          const pk = await s.getPublicKey();
-          if (pk === existing.npub) {
-            setSigner(s); setSignerType("extension"); setScreen("chat"); return;
-          }
-        } catch {}
-      }
+      // No existing binding — check SBT gate
+      const hasSbt = await checkSbt(accountId);
+      if (!hasSbt) { setScreen("no-sbt"); return; }
       setScreen("bind");
     })();
   }, [screen, accountId]);
@@ -407,17 +397,38 @@ function ChatApp() {
   };
 
   // ── NIP-46 nostrconnect:// flow ──
+  // relay.powr.build — Clave signer's pinned relay.
+  // relay.primal.net — Primal's relay, their server monitors it.
+  // relay.nip46.com — dedicated NIP-46 relay.
+  // nos.lol — reliable public relay.
+  const nip46Relays = ["wss://relay.powr.build", "wss://relay.primal.net", "wss://relay.nip46.com", "wss://nos.lol"];
   const handleStartConnect = () => {
-    setError("");
-    const handle = startNostrConnectFlow({
-      relay: relayUrl,
+    console.log("[NIP-46] handleStartConnect called");
+    let handle: any;
+    try {
+    // The chat relay (from on-chain binding) may not support kind 24133 subscriptions.
+    handle = startNostrConnectFlow({
+      relay: nip46Relays[0],
+      fallbackRelays: nip46Relays.slice(1),
+      perms: "get_public_key,nip44_encrypt,nip44_decrypt,sign_event:1,sign_event:4,sign_event:42",
+      metadata: {
+        name: "Legion Chat",
+        url: "https://legion-chat.pages.dev",
+      },
       onAuthChallenge: (url) => { console.log("[NIP-46] auth challenge:", url); window.open(url, "_blank"); },
     });
     console.log("[NIP-46] nostrconnect URI:", handle.uri);
     console.log("[NIP-46] client pubkey:", handle.clientPubkey);
+    (window as any).__nip46Handle = handle;
     setConnectHandle(handle);
     setConnectUri(handle.uri);
     setScreen("connect-qr");
+    } catch (e: any) {
+      console.error("[NIP-46] handleStartConnect FAILED:", e.message);
+      setError("NIP-46 init failed: " + e.message);
+    }
+
+    if (!handle) return;
 
     // Mobile: when app comes back to foreground after signer app,
     // the WS subscription died during background. Reopen it so new events arrive.
@@ -427,20 +438,41 @@ function ChatApp() {
       .then(async (s) => {
         console.log("[NIP-46] paired! bunker pubkey:", s.bunkerPubkey);
 
-        // Register post-pair visibilitychange for mobile resume
-        const onVisPost = () => {
-          if (document.visibilityState === "visible") {
-            console.log("[NIP-46] app resumed (post-pair), refreshing subscription...");
-            handle.refreshSubscription?.();
-          }
-        };
-        document.addEventListener("visibilitychange", onVisPost);
+        // NDK's blockUntilReady already calls getPublicKey + switchRelays
+        // The user's real pubkey is available immediately
+        let myPubkey: string | null = null;
+        try {
+          myPubkey = await s.getRealPubkey();
+        } catch (e: any) {
+          console.warn("[NIP-46] getRealPubkey failed:", e.message);
+        }
 
-        const pk = await s.getPublicKey();
-        console.log("[NIP-46] user pubkey:", pk);
-        // Persist with client nsec for reliable reconnection
-        const clientNsec = s.exportClientNsec();
-        await doConnectBind(s, pk, clientNsec);
+        if (!myPubkey) {
+          console.error("[NIP-46] FAILED — bunker did not respond to sign_event");
+          // Stay on connect-qr screen so log panel stays visible
+          return;
+        }
+
+        console.log("[NIP-46] got real pubkey:", myPubkey);
+
+        // Bind (requires sign_event — needs Full trust in Primal)
+        const existing = await fetchBinding(accountId!);
+        const alreadyBound = existing && existing.npub === myPubkey;
+        if (!alreadyBound) {
+          console.log("[NIP-46] signing binding challenge...");
+          const proof = await signChallenge(s, `legion:${accountId!}`);
+          console.log("[NIP-46] binding challenge signed, sending tx...");
+          await sendBindingTx(wallet.signAndSendTransaction, accountId!, myPubkey, relayUrl, proof);
+        }
+
+        // Persist session
+        const nip46RelayStr = nip46Relays.map(r => `relay=${encodeURIComponent(r)}`).join("&");
+        localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
+          type: "bunker",
+          uri: `bunker://${s.bunkerPubkey}?${nip46RelayStr}`,
+        }));
+
+        setSigner(s); setMyPubkey(myPubkey); setSignerType("bunker"); setScreen("chat");
       })
       .catch((e: any) => {
         cleanup();
@@ -464,6 +496,49 @@ function ChatApp() {
     setScreen("bind");
   };
 
+  const hexToBytes = (hex: string) => {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return bytes;
+  };
+
+  // Binding with a pre-signed proof (from the 1-second pairing window)
+  const doConnectBindWithProof = async (_bunkerSigner: NostrSigner, npub: string, clientNsec: string, proof: string | null) => {
+    if (!accountId) return;
+    setScreen("binding"); setError("");
+    try {
+      // Skip on-chain tx if this pubkey is already bound to this NEAR account
+      const existing = await fetchBinding(accountId);
+      // The binding maps the CLIENT pubkey (from clientNsec) to the user's real Nostr pubkey.
+      // But we need to bind with the client's pubkey, not the user's Nostr pubkey,
+      // because we sign locally with the client nsec.
+      const clientPk = getPublicKey(nip19.decode(clientNsec).data as Uint8Array);
+      const alreadyBound = existing && existing.npub === clientPk;
+      if (!alreadyBound && proof) {
+        await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
+      } else if (!alreadyBound && !proof) {
+        throw new Error("No binding proof — bunker didn't sign in time. Try again.");
+      }
+      // Persist as bunker type with client nsec.
+      // On restore, we'll use PrivateKeySigner from clientNsec (no bunker RPCs needed).
+      const nip46RelayStr = nip46Relays.map(r => `relay=${encodeURIComponent(r)}`).join("&");
+      localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
+        type: "bunker",
+        uri: `bunker://${(_bunkerSigner as any).bunkerPubkey}?${nip46RelayStr}`,
+        clientNsec,
+      }));
+      // Switch to LOCAL signing — PrivateKeySigner from client nsec.
+      // The bunker is deaf after pairing, so all future signing is local.
+      const localSigner = createPrivateKeySigner(clientNsec);
+      setSigner(localSigner); setMyPubkey(npub); setSignerType("bunker"); setScreen("chat");
+    } catch (e: any) {
+      setError("Binding failed: " + e.message);
+      setScreen("bind");
+    }
+  };
+
   const doConnectBind = async (s: NostrSigner, npub: string, clientNsec: string) => {
     if (!accountId) return;
     setScreen("binding"); setError("");
@@ -476,9 +551,11 @@ function ChatApp() {
         await sendBindingTx(wallet.signAndSendTransaction, accountId, npub, relayUrl, proof);
       }
       // Persist as bunker type with client nsec for reconnection
+      // Use NIP-46 relays (not chat relay) for bunker communication
+      const nip46RelayStr = nip46Relays.map(r => `relay=${encodeURIComponent(r)}`).join("&");
       localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
         type: "bunker",
-        uri: `bunker://${(s as any).bunkerPubkey}?relay=${relayUrl}`,
+        uri: `bunker://${(s as any).bunkerPubkey}?${nip46RelayStr}`,
         clientNsec,
       }));
       setSigner(s); setMyPubkey(npub); setSignerType("bunker"); setScreen("chat");
@@ -490,6 +567,7 @@ function ChatApp() {
 
   const handleSend = async () => {
     if (!input.trim() || !signer) return;
+    console.log("[SEND] handleSend triggered, connState:", connState);
     const now = Date.now();
     if (now - lastSendRef.current < SEND_COOLDOWN) {
       setError("Slow down — wait a moment before sending again.");
@@ -522,7 +600,15 @@ function ChatApp() {
       return list;
     });
     try {
-      const event = await signChannelMessage(signer, content, CHANNEL_ID, currentReplyTo);
+      console.log("[SEND] calling signChannelMessage...");
+      const signPromise = signChannelMessage(signer, content, CHANNEL_ID, currentReplyTo);
+      const event = await Promise.race([
+        signPromise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Signing timed out (30s) — bunker may be offline")), 30_000),
+        ),
+      ]);
+      console.log("[SEND] signed event:", event.id?.slice(0, 12));
       const result = await publishWithAck(relay, event);
       const timedOut = !result.ok && result.message.includes("timed out");
       setMessages((prev) =>
