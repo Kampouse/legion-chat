@@ -154,7 +154,7 @@ export default function ContextMenu({
       >
         <div
           className="absolute inset-0"
-          style={{ background: "rgba(0,0,0,0.5)" }}
+          style={{ background: "var(--overlay-light)" }}
           onClick={onClose}
         />
         <div

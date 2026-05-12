@@ -6,6 +6,8 @@
     <meta name="theme-color" content="#0a0a0a" />
     <style>html,body{height:100%;margin:0;background:#0a0a0a}</style>
     <script>
+      // Apply saved theme immediately to prevent flash
+      (function(){var t=localStorage.getItem("legion-theme");if(t==="light"){document.documentElement.setAttribute("data-theme","light");document.querySelector('meta[name="theme-color"]').content="#ffffff";document.querySelector('style').textContent='html,body{height:100%;margin:0;background:#ffffff}'}})();
       // Visual Viewport API — prevents white gap when mobile keyboard opens
       function vv(){var v=window.visualViewport;if(!v)return;document.documentElement.style.setProperty('--vvh',v.height+'px')}
       if(window.visualViewport){window.visualViewport.addEventListener('resize',vv);window.visualViewport.addEventListener('scroll',vv);vv()}

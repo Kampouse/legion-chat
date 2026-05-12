@@ -129,18 +129,18 @@ export default function ProfilePage({
     <div className="flex flex-col h-full" style={{ backgroundColor: "var(--bg)" }}>
       {/* Header */}
       <header className="flex items-center gap-3 px-4 py-3 shrink-0 absolute top-0 left-0 right-0 z-20" style={{ backgroundColor: "transparent" }}>
-        <button onClick={onBack} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.5)", color: "#fff" }}>
+        <button onClick={onBack} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--btn-overlay-bg)", color: "var(--btn-overlay-color)" }}>
           <ArrowLeft size={16} />
         </button>
         <div className="flex-1" />
-        <button onClick={() => setShowSettings(true)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "rgba(0,0,0,0.5)", color: "#fff" }}>
+        <button onClick={() => setShowSettings(true)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: "var(--btn-overlay-bg)", color: "var(--btn-overlay-color)" }}>
           <Settings size={15} />
         </button>
       </header>
 
       <div className="flex-1 overflow-y-auto">
         {/* Banner */}
-        <div className="h-32 relative" style={{ background: "linear-gradient(135deg, #00ec97 0%, #0a3d2a 50%, #1a1a2e 100%)" }}>
+        <div className="h-32 relative" style={{ background: "var(--banner-gradient)" }}>
           <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, transparent 60%, var(--bg))" }} />
         </div>
 

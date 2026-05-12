@@ -130,7 +130,7 @@ function QuotedPost({ post, profiles, onClick }: { post: Message; profiles: Reco
     <div
       onClick={onClick}
       className="mt-2 rounded-xl p-3 active:opacity-70 transition-opacity"
-      style={{ border: "1px solid var(--border)", backgroundColor: "rgba(255,255,255,0.03)", cursor: onClick ? "pointer" : undefined }}
+      style={{ border: "1px solid var(--border)", backgroundColor: "var(--quote-bg)", cursor: onClick ? "pointer" : undefined }}
     >
       <div className="flex items-center gap-2 mb-1">
         <Avatar profile={profile} name={name} size={16} />
@@ -301,7 +301,7 @@ function ComposeModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.6)" }} />
+      <div className="absolute inset-0" style={{ backgroundColor: "var(--overlay-scrim)" }} />
       <div
         className="relative flex flex-col w-full max-w-lg rounded-2xl overflow-hidden"
         style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", maxHeight: "80vh", animation: "modalIn 0.2s ease" }}
@@ -375,12 +375,12 @@ function ComposeModal({
               <div className="mt-2 ml-12 relative rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)", maxWidth: "280px" }}>
                 {previewUrl && <img src={previewUrl} alt="" className="w-full max-h-[180px] object-cover" />}
                 {uploading && (
-                  <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }}>
+                  <div className="absolute inset-0 flex items-center justify-center" style={{ background: "var(--overlay-subtle)" }}>
                     <Loader2 size={24} className="animate-spin text-white" />
                   </div>
                 )}
                 {previewUrl && !uploading && (
-                  <button onClick={() => setPreviewUrl(null)} className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)", color: "white" }}>
+                  <button onClick={() => setPreviewUrl(null)} className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: "var(--overlay-scrim)", color: "white" }}>
                     <X size={12} />
                   </button>
                 )}
@@ -682,7 +682,7 @@ function ThreadModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,0,0,0.6)" }} />
+      <div className="absolute inset-0" style={{ backgroundColor: "var(--overlay-scrim)" }} />
       <div
         className="relative flex flex-col w-full max-w-lg rounded-2xl overflow-hidden"
         style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", maxHeight: "85vh", animation: "modalIn 0.2s ease" }}

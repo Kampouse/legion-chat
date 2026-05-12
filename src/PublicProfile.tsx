@@ -4,7 +4,7 @@ import { SimplePool } from "nostr-tools/pool";
 import { nip19 } from "nostr-tools";
 import { FEED_CHANNEL_ID } from "./lib/constants";
 import type { Profile } from "./lib/types";
-import { Loader2, ArrowLeft, Copy, Check, ExternalLink } from "lucide-react";
+import { Loader2, ArrowLeft, Copy, Check, ExternalLink, Sun, Moon } from "lucide-react";
 import { useTheme } from "./hooks/useTheme";
 
 // ── Relay config ──
@@ -182,7 +182,7 @@ function PostCard({
 // ── Main PublicProfile component ──
 
 export default function PublicProfile() {
-  const { theme } = useTheme();
+  const { theme, toggle: toggleTheme } = useTheme();
   const { npub } = useParams<{ npub: string }>();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<NostrEvent[]>([]);
@@ -320,7 +320,11 @@ export default function PublicProfile() {
               Legion Chat
             </span>
           </div>
-</header>
+          <div className="flex-1" />
+          <button onClick={toggleTheme} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--muted)" }}>
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+        </header>
 
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
           <div className="text-4xl">⚠️</div>
@@ -376,7 +380,11 @@ export default function PublicProfile() {
               Legion Chat
             </span>
           </div>
-</header>
+          <div className="flex-1" />
+          <button onClick={toggleTheme} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--muted)" }}>
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+        </header>
 
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
           <Loader2
@@ -423,7 +431,11 @@ export default function PublicProfile() {
           </div>
           <span className="font-bold text-lg tracking-tight">Legion Chat</span>
         </div>
-</header>
+        <div className="flex-1" />
+        <button onClick={toggleTheme} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--muted)" }}>
+          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+      </header>
 
       {/* Profile Content */}
       <main className="flex-1">

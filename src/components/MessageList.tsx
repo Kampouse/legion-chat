@@ -76,7 +76,7 @@ function ImagePreview({ url }: { url: string }) {
           onClick={() => setLightbox(false)}
           style={{
             position: "fixed", inset: 0, zIndex: 9999,
-            background: "rgba(0,0,0,0.92)", display: "flex",
+            background: "var(--overlay-heavy)", display: "flex",
             alignItems: "center", justifyContent: "center",
             padding: "16px", cursor: "zoom-out",
             animation: "lbFadeIn 0.15s ease",
@@ -99,8 +99,8 @@ function ImagePreview({ url }: { url: string }) {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "absolute", bottom: "20px", right: "20px",
-              background: "rgba(255,255,255,0.15)", padding: "8px 14px",
-              borderRadius: "8px", color: "#fff", fontSize: "13px",
+              background: "var(--msg-copy-bg)", padding: "8px 14px",
+              borderRadius: "8px", color: "var(--text)", fontSize: "13px",
               textDecoration: "none", display: "flex", alignItems: "center", gap: "6px",
             }}
           >
@@ -142,8 +142,8 @@ function ReactionBar({ reactions, myPubkey }: { reactions?: Record<string, strin
           key={emoji}
           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[11px]"
           style={{
-            backgroundColor: pks.includes(myPubkey) ? "rgba(0,236,151,0.15)" : "rgba(255,255,255,0.08)",
-            border: `1px solid ${pks.includes(myPubkey) ? "var(--accent)" : "rgba(255,255,255,0.12)"}`,
+            backgroundColor: pks.includes(myPubkey) ? "var(--reaction-bg-mine)" : "var(--reaction-bg)",
+            border: `1px solid ${pks.includes(myPubkey) ? "var(--accent)" : "var(--reaction-border)"}`,
             color: "var(--text)",
           }}
         >
@@ -442,7 +442,7 @@ export default function MessageList({
                   <div
                     className="px-3 py-2 text-sm break-words leading-relaxed relative select-none"
                     style={{
-                      backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "rgba(0,236,151,0.15)" : "var(--surface)",
+                      backgroundColor: msg.failed ? "rgba(239,68,68,0.1)" : mine ? "var(--msg-mine-bg)" : "var(--surface)",
                       border: msg.failed ? "1px solid rgba(239,68,68,0.3)" : mine ? "none" : "1px solid var(--border)",
                       borderRadius: mine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
                       opacity: msg.pending ? 0.6 : 1,
@@ -452,7 +452,7 @@ export default function MessageList({
                       <div
                         className="mb-1.5 px-2 py-1 rounded text-xs border-l-2"
                         style={{
-                          backgroundColor: "rgba(0,236,151,0.05)",
+                          backgroundColor: "var(--msg-reply-bg)",
                           borderLeftColor: "var(--accent)",
                           color: "var(--muted)",
                         }}

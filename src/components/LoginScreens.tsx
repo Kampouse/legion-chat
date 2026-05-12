@@ -301,7 +301,7 @@ export function ConnectQRScreen({
             </button>
           </div>
           <div className="max-h-40 overflow-y-auto rounded-lg p-2 text-[10px] font-mono"
-               style={{ backgroundColor: "rgba(0,0,0,0.4)" }}>
+               style={{ backgroundColor: "var(--overlay-subtle)" }}>
             {logs.map((l, i) => (
               <div key={i} style={{ color: l.includes("ERR") ? "#f87171" : l.includes("VIS") ? "#facc15" : "#9ca3af" }}>
                 {l}

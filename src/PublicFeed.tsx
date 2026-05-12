@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { SimplePool } from "nostr-tools/pool";
 import { FEED_CHANNEL_ID } from "./lib/constants";
 import type { Profile } from "./lib/types";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sun, Moon } from "lucide-react";
 import { useTheme } from "./hooks/useTheme";
 
 // ── Relay config ──
@@ -149,7 +149,7 @@ function PostCard({
                 className="mt-2 rounded-xl p-3"
                 style={{
                   border: "1px solid var(--border)",
-                  backgroundColor: "rgba(255,255,255,0.03)",
+                  backgroundColor: "var(--quote-bg)",
                 }}
               >
                 <span
@@ -170,7 +170,7 @@ function PostCard({
 // ── Main PublicFeed component ──
 
 export default function PublicFeed() {
-  const { theme } = useTheme();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [events, setEvents] = useState<NostrEvent[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [loading, setLoading] = useState(true);
@@ -294,6 +294,9 @@ export default function PublicFeed() {
           </a>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={toggleTheme} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--muted)" }}>
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <a
             href="/chat"
             className="px-4 py-1.5 rounded-full text-sm font-bold text-black"
