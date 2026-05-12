@@ -3,7 +3,7 @@ import type { NostrProfile, NostrSigner, Relay, ConnectionState } from "../lib/n
 import type { Message, Profile } from "../lib/types";
 import { fetchNearSocialProfile, signProfileUpdate } from "../lib/nostr";
 import { nip19 } from "nostr-tools";
-import { ArrowLeft, Pencil, Download, LogOut, Check, Copy, ExternalLink, X, Heart, MessageCircle, Repeat2, Share2 } from "lucide-react";
+import { ArrowLeft, Pencil, Download, LogOut, Check, Copy, ExternalLink, X, Heart, MessageCircle, Repeat2, Share2, Settings } from "lucide-react";
 import SettingsPanel from "./SettingsPanel";
 
 interface ProfilePageProps {
@@ -279,14 +279,14 @@ export default function ProfilePage({
         <div style={{ borderTop: "1px solid var(--border)" }}>
           {myMessages.length === 0 ? (
             <div className="py-16 text-center">
-              <div className="text-3xl mb-2">\u270d\ufe0f</div>
+              <div className="text-3xl mb-2">✍️</div>
               <p className="text-sm" style={{ color: "var(--muted)" }}>No posts yet. Send a message in chat to see it here.</p>
             </div>
           ) : (
             myMessages.map((msg) => {
               const imageUrl = msg.content.match(/(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|avif)(\?[^\s]*)?)/i)?.[1];
               const text = imageUrl ? msg.content.replace(imageUrl, "").trim() : msg.content;
-              const heartReactions = (msg.reactions || {})["\u2764\ufe0f"] || [];
+              const heartReactions = (msg.reactions || {})["❤️"] || [];
               const totalLikes = heartReactions.length;
               return (
                 <article key={msg.id} className="border-b" style={{ borderColor: "var(--border)" }}>
@@ -302,7 +302,7 @@ export default function ProfilePage({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="font-bold text-[15px] truncate" style={{ color: "var(--text)" }}>{displayName}</span>
-                          <span className="text-[13px]" style={{ color: "var(--muted)" }}>\u00b7 {formatTime(msg.created_at)}</span>
+                          <span className="text-[13px]" style={{ color: "var(--muted)" }}>· {formatTime(msg.created_at)}</span>
                         </div>
                         {msg.replyToId && msg.replyToContent && (
                           <div className="mt-1 px-2 py-1 rounded text-xs border-l-2" style={{ backgroundColor: "rgba(0,236,151,0.05)", borderLeftColor: "var(--accent)", color: "var(--muted)" }}>
