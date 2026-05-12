@@ -182,7 +182,7 @@ function PostCard({
 // ── Main PublicProfile component ──
 
 export default function PublicProfile() {
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { theme } = useTheme();
   const { npub } = useParams<{ npub: string }>();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<NostrEvent[]>([]);
@@ -320,22 +320,6 @@ export default function PublicProfile() {
               Legion Chat
             </span>
           </div>
-                  <div className="flex-1" />
-          <button
-            onClick={toggleTheme}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ color: "var(--muted)" }}
-          >
-            {theme === "dark" ? "☀️" : "🌙"}
-          </button>
-                  <div className="flex-1" />
-          <button
-            onClick={toggleTheme}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ color: "var(--muted)" }}
-          >
-            {theme === "dark" ? "\u2600\ufe0f" : "\ud83c\udf19"}
-          </button>
 </header>
 
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
@@ -392,14 +376,6 @@ export default function PublicProfile() {
               Legion Chat
             </span>
           </div>
-                  <div className="flex-1" />
-          <button
-            onClick={toggleTheme}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ color: "var(--muted)" }}
-          >
-            {theme === "dark" ? "\u2600\ufe0f" : "\ud83c\udf19"}
-          </button>
 </header>
 
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
@@ -447,14 +423,6 @@ export default function PublicProfile() {
           </div>
           <span className="font-bold text-lg tracking-tight">Legion Chat</span>
         </div>
-                <div className="flex-1" />
-          <button
-            onClick={toggleTheme}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ color: "var(--muted)" }}
-          >
-            {theme === "dark" ? "\u2600\ufe0f" : "\ud83c\udf19"}
-          </button>
 </header>
 
       {/* Profile Content */}

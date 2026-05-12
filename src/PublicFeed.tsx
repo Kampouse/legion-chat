@@ -170,7 +170,7 @@ function PostCard({
 // ── Main PublicFeed component ──
 
 export default function PublicFeed() {
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { theme } = useTheme();
   const [events, setEvents] = useState<NostrEvent[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [loading, setLoading] = useState(true);
@@ -294,13 +294,6 @@ export default function PublicFeed() {
           </a>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={toggleTheme}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
-            style={{ color: "var(--muted)" }}
-          >
-            {theme === "dark" ? "☀️" : "🌙"}
-          </button>
           <a
             href="/chat"
             className="px-4 py-1.5 rounded-full text-sm font-bold text-black"

@@ -2,7 +2,8 @@ import type { NostrProfile, NostrSigner, Relay, ConnectionState } from "../lib/n
 import type { Profile } from "../lib/types";
 import { CHANNEL_ID } from "../lib/constants";
 import { fetchNearSocialProfile } from "../lib/nostr";
-import { X, Download } from "lucide-react";
+import { X, Download, Sun, Moon } from "lucide-react";
+import { useTheme } from "../hooks/useTheme";
 
 interface SettingsPanelProps {
   showSettings: boolean;
@@ -47,6 +48,7 @@ export default function SettingsPanel({
   signProfileUpdate,
   showToast,
 }: SettingsPanelProps) {
+  const { theme, toggle: toggleTheme } = useTheme();
   if (!showSettings) return null;
 
   return (
@@ -88,6 +90,17 @@ export default function SettingsPanel({
                   <div className="px-3 py-2 rounded-lg text-xs font-mono truncate cursor-pointer" title={CHANNEL_ID} onClick={() => { navigator.clipboard.writeText(CHANNEL_ID); showToast("Copied!"); }} style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>{CHANNEL_ID}</div>
                 </div>
               </div>
+
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider pt-2" style={{ color: "var(--muted)" }}>Appearance</h3>
+              <button
+                onClick={toggleTheme}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg"
+                style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
+              >
+                {theme === "dark" ? <Sun size={16} style={{ color: "var(--accent)" }} /> : <Moon size={16} style={{ color: "var(--accent)" }} />}
+                <span className="text-sm" style={{ color: "var(--text)" }}>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+                <span className="text-xs ml-auto" style={{ color: "var(--muted)" }}>{theme === "dark" ? "Currently dark" : "Currently light"}</span>
+              </button>
             </div>
 
             {/* Right: Profile */}
