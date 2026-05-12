@@ -34,6 +34,7 @@ import {
 import { DEFAULT_RELAY, CHANNEL_ID } from "./lib/constants";
 import { getPublicKey } from "nostr-tools/pure";
 import { hexToBytes } from "@noble/hashes/utils";
+import { saveSession, loadSession, deleteSession } from "./lib/session-store";
 import { nip19 } from "nostr-tools";
 import type { Message, Profile } from "./lib/types";
 import MessageList from "./components/MessageList";
@@ -139,10 +140,10 @@ function ChatApp() {
       if (existing) {
         setMyPubkey(existing.npub);
         setRelayUrl(existing.relay || DEFAULT_RELAY);
-        const savedSigner = localStorage.getItem(`legion:signer:${accountId}`);
+        const savedSigner = await loadSession(`legion:signer:${accountId}`);
         if (savedSigner) {
           try {
-            const parsed = JSON.parse(savedSigner);
+            const parsed = savedSigner;
             if (parsed.type === "local" && parsed.nsec) {
               const s = createPrivateKeySigner(parsed.nsec);
               const pk = await s.getPublicKey();
@@ -383,7 +384,7 @@ function ChatApp() {
       const signerData = mode === "bunker"
         ? { type: "bunker", uri: bunkerUri, ...(s instanceof Object && "exportClientNsec" in s ? { clientNsec: (s as any).exportClientNsec() } : {}) }
         : mode === "local" ? { type: "local", nsec } : { type: "extension" };
-      localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify(signerData));
+      saveSession(`legion:signer:${accountId}`, signerData);
       setSigner(s); setMyPubkey(npub); setSignerType(mode); setScreen("chat");
     } catch (e: any) { setError("Binding failed: " + e.message); setScreen("bind"); }
   };
@@ -479,13 +480,13 @@ function ChatApp() {
 
         // Persist session — save full signer state for restore on reload
         const signerData = s.serialize();
-        localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
+        saveSession(`legion:signer:${accountId}`, {
           type: "ndk-bunker",
           clientSecKey: signerData.clientSecretKey,
           bunkerPubkey: signerData.bunkerPubkey,
           relays: signerData.relays,
           userPubkey: signerData.userPubkey,
-        }));
+        });
 
         setSigner(s); setMyPubkey(myPubkey); setSignerType("bunker"); setScreen("chat");
       })
@@ -539,11 +540,11 @@ function ChatApp() {
       // Persist as bunker type with client nsec.
       // On restore, we'll use PrivateKeySigner from clientNsec (no bunker RPCs needed).
       const nip46RelayStr = nip46Relays.map(r => `relay=${encodeURIComponent(r)}`).join("&");
-      localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
+      saveSession(`legion:signer:${accountId}`, {
         type: "bunker",
         uri: `bunker://${(_bunkerSigner as any).bunkerPubkey}?${nip46RelayStr}`,
         clientNsec,
-      }));
+      });
       // Switch to LOCAL signing — PrivateKeySigner from client nsec.
       // The bunker is deaf after pairing, so all future signing is local.
       const localSigner = createPrivateKeySigner(clientNsec);
@@ -568,11 +569,11 @@ function ChatApp() {
       // Persist as bunker type with client nsec for reconnection
       // Use NIP-46 relays (not chat relay) for bunker communication
       const nip46RelayStr = nip46Relays.map(r => `relay=${encodeURIComponent(r)}`).join("&");
-      localStorage.setItem(`legion:signer:${accountId}`, JSON.stringify({
+      saveSession(`legion:signer:${accountId}`, {
         type: "bunker",
         uri: `bunker://${(s as any).bunkerPubkey}?${nip46RelayStr}`,
         clientNsec,
-      }));
+      });
       setSigner(s); setMyPubkey(npub); setSignerType("bunker"); setScreen("chat");
     } catch (e: any) {
       setError("Binding failed: " + e.message);
@@ -698,7 +699,7 @@ function ChatApp() {
     wallet.disconnect(); signer?.close?.();
     setSigner(null); setNsec(""); setMyPubkey(""); setSignerType(null); setMessages([]);
     setProfiles({});
-    if (accountId) localStorage.removeItem(`legion:signer:${accountId}`);
+    if (accountId) deleteSession(`legion:signer:${accountId}`);
     setScreen("login");
   };
 
