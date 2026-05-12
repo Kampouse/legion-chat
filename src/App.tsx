@@ -778,6 +778,7 @@ function ChatApp() {
             relayRef={relayRef}
             profiles={profiles}
             setProfiles={setProfiles}
+            messages={messages}
             myPubkey={myPubkey}
             accountId={accountId}
             relayUrl={relayUrl}
