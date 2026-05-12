@@ -3,7 +3,7 @@ import type { NostrProfile, NostrSigner, Relay, ConnectionState } from "../lib/n
 import type { Message, Profile } from "../lib/types";
 import { fetchNearSocialProfile, signProfileUpdate } from "../lib/nostr";
 import { nip19 } from "nostr-tools";
-import { ArrowLeft, Pencil, Download, LogOut, Check, Copy, ExternalLink, X, MessageSquare, Settings } from "lucide-react";
+import { ArrowLeft, Pencil, Download, LogOut, Check, Copy, ExternalLink, X, Heart, MessageCircle, Repeat2, Share2 } from "lucide-react";
 import SettingsPanel from "./SettingsPanel";
 
 interface ProfilePageProps {
@@ -275,55 +275,72 @@ export default function ProfilePage({
           </div>
         )}
 
-        {/* Posts tab */}
-        <div className="border-t" style={{ borderTop: "1px solid var(--border)" }}>
-          <div className="px-4 py-2.5 flex items-center gap-2 border-b" style={{ borderBottom: "1px solid var(--border)" }}>
-            <MessageSquare size={14} style={{ color: "var(--accent)" }} />
-            <span className="text-sm font-semibold">Your Posts</span>
-          </div>
-
+        {/* Posts — feed-style cards */}
+        <div style={{ borderTop: "1px solid var(--border)" }}>
           {myMessages.length === 0 ? (
             <div className="py-16 text-center">
-              <div className="text-3xl mb-2">✍️</div>
+              <div className="text-3xl mb-2">\u270d\ufe0f</div>
               <p className="text-sm" style={{ color: "var(--muted)" }}>No posts yet. Send a message in chat to see it here.</p>
             </div>
           ) : (
-            <div className="divide-y" style={{ "--tw-divide-opacity": "1", borderColor: "var(--border)" } as any}>
-              {myMessages.map((msg) => (
-                <div key={msg.id} className="px-4 py-3">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden flex items-center justify-center text-xs font-bold" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
-                      {profile?.picture ? (
-                        <img src={profile.picture} className="w-full h-full object-cover" alt="" />
-                      ) : (
-                        displayName.slice(0, 2).toUpperCase()
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-semibold text-sm">{displayName}</span>
-                        <span className="text-xs" style={{ color: "var(--muted)" }}>@{handle}</span>
-                        <span className="text-xs" style={{ color: "var(--muted)" }}>· {formatTime(msg.created_at)}</span>
+            myMessages.map((msg) => {
+              const imageUrl = msg.content.match(/(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|avif)(\?[^\s]*)?)/i)?.[1];
+              const text = imageUrl ? msg.content.replace(imageUrl, "").trim() : msg.content;
+              const heartReactions = (msg.reactions || {})["\u2764\ufe0f"] || [];
+              const totalLikes = heartReactions.length;
+              return (
+                <article key={msg.id} className="border-b" style={{ borderColor: "var(--border)" }}>
+                  <div className="px-4 py-3">
+                    <div className="flex gap-3">
+                      <div className="w-10 h-10 rounded-full shrink-0 overflow-hidden flex items-center justify-center text-xs font-bold" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
+                        {profile?.picture ? (
+                          <img src={profile.picture} className="w-full h-full object-cover" alt="" />
+                        ) : (
+                          displayName.slice(0, 2).toUpperCase()
+                        )}
                       </div>
-                      <p className="text-sm mt-1 leading-relaxed break-words" style={{ color: "var(--text)" }}>{msg.content}</p>
-                      {msg.repliesTo && (
-                        <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>Replying to {msg.replyToSender || "unknown"}</p>
-                      )}
-                      {/* Reactions */}
-                      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                        <div className="flex gap-2 mt-1.5">
-                          {Object.entries(msg.reactions).map(([emoji, pubkeys]) => (
-                            <span key={emoji} className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", color: "var(--text)" }}>
-                              {emoji} {pubkeys.length}
-                            </span>
-                          ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-[15px] truncate" style={{ color: "var(--text)" }}>{displayName}</span>
+                          <span className="text-[13px]" style={{ color: "var(--muted)" }}>\u00b7 {formatTime(msg.created_at)}</span>
                         </div>
-                      )}
+                        {msg.replyToId && msg.replyToContent && (
+                          <div className="mt-1 px-2 py-1 rounded text-xs border-l-2" style={{ backgroundColor: "rgba(0,236,151,0.05)", borderLeftColor: "var(--accent)", color: "var(--muted)" }}>
+                            <span className="font-semibold" style={{ color: "var(--text)" }}>{msg.replyToSender || "unknown"}</span>
+                            <span className="ml-1">{msg.replyToContent.length > 60 ? msg.replyToContent.slice(0, 60) + "..." : msg.replyToContent}</span>
+                          </div>
+                        )}
+                        {text && (
+                          <p className="text-[15px] mt-1 leading-normal whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>{text}</p>
+                        )}
+                        {imageUrl && (
+                          <div className="mt-3 rounded-2xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                            <img src={imageUrl} alt="" className="w-full max-h-[500px] object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between mt-3">
+                          <div className="flex items-center gap-6">
+                            <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--muted)" }}>
+                              <MessageCircle size={16} />
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[13px]" style={{ color: totalLikes > 0 ? "#ef4444" : "var(--muted)" }}>
+                              <Heart size={16} fill={totalLikes > 0 ? "currentColor" : "none"} />
+                              {totalLikes > 0 && <span>{totalLikes}</span>}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[13px]" style={{ color: "var(--muted)" }}>
+                              <Repeat2 size={16} />
+                            </div>
+                          </div>
+                          <button onClick={() => { navigator.clipboard.writeText(msg.content.slice(0, 100)); showToast("Copied!"); }} className="flex items-center gap-1.5 text-[13px] active:opacity-60" style={{ color: "var(--muted)" }}>
+                            <Share2 size={16} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                </article>
+              );
+            })
           )}
         </div>
 
