@@ -290,7 +290,7 @@ export default function PublicFeed() {
           <span className="font-bold text-lg tracking-tight">Legion Chat</span>
         </div>
         <a
-          href="/"
+          href="/chat"
           className="px-4 py-1.5 rounded-full text-sm font-bold text-black"
           style={{ backgroundColor: "var(--accent)" }}
         >
