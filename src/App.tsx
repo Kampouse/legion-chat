@@ -41,6 +41,7 @@ import MessageInput from "./components/MessageInput";
 import FeedView from "./components/FeedView";
 import SettingsPanel from "./components/SettingsPanel";
 import Toast from "./components/Toast";
+import ProfilePage from "./components/ProfilePage";
 import { LoginScreen, CheckingScreen, NoSbtScreen, BindScreen, BindingScreen, ConnectQRScreen } from "./components/LoginScreens";
 
 type Screen = "login" | "checking" | "no-sbt" | "bind" | "binding" | "connect-qr" | "chat";
@@ -86,6 +87,7 @@ function ChatApp() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [editProfile, setEditProfile] = useState<import("./lib/nostr").NostrProfile | null>(null);
   const lastSendRef = useRef(0);
   const SEND_COOLDOWN = 1500; // ms between sends
@@ -706,12 +708,27 @@ function ChatApp() {
 
   return (
     <div className="flex flex-col h-[100dvh]" style={{ backgroundColor: "var(--bg)" }}>
-      {screen === "chat" && (
+      {screen === "chat" && !showProfile && (
         <header className="flex items-center justify-between px-4 py-3 border-b shrink-0" style={{ borderColor: "var(--border)", backgroundColor: "var(--surface)" }}>
           <div className="flex items-center gap-2 max-w-3xl mx-auto w-full">
             <button
-              onClick={() => { if (connState !== "connected") reconnectFnRef.current?.(); }}
+              onClick={() => setShowProfile(true)}
               className="flex items-center gap-2"
+              title="Open profile"
+            >
+              <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center text-[10px] font-bold" style={{ backgroundColor: "var(--accent)", color: "#000" }}>
+                {profiles[myPubkey]?.picture ? (
+                  <img src={profiles[myPubkey].picture} className="w-full h-full object-cover" alt="" />
+                ) : (
+                  (profiles[myPubkey]?.name || accountId || "?").slice(0, 2).toUpperCase()
+                )}
+              </div>
+            </button>
+            <span className="font-semibold text-sm">Legion Chat</span>
+            <div className="flex-1" />
+            <button
+              onClick={() => { if (connState !== "connected") reconnectFnRef.current?.(); }}
+              className="flex items-center gap-1.5"
               title={connInfo.label}
             >
               <span
@@ -719,9 +736,6 @@ function ChatApp() {
                 style={{ backgroundColor: connInfo.color }}
               />
             </button>
-            <span className="font-semibold text-sm">Legion Chat</span>
-            <div className="flex-1" />
-            <span className="text-xs font-mono" style={{ color: "var(--muted)" }}>{accountId}</span>
             <button
               onClick={() => { setShowSearch((v) => !v); if (showSearch) setSearchQuery(""); }}
               className="text-base px-2 py-1 rounded active:opacity-60"
@@ -758,7 +772,24 @@ function ChatApp() {
             {screen === "binding" && <BindingScreen />}
           </div>
         )}
-        {screen === "chat" && (
+        {screen === "chat" && showProfile && (
+          <ProfilePage
+            signer={signer}
+            relayRef={relayRef}
+            profiles={profiles}
+            setProfiles={setProfiles}
+            myPubkey={myPubkey}
+            accountId={accountId}
+            relayUrl={relayUrl}
+            signerType={_signerType}
+            connState={connState}
+            onBack={() => setShowProfile(false)}
+            onSignOut={() => { setShowProfile(false); handleSignOut(); }}
+            setError={setError}
+            showToast={showToast}
+          />
+        )}
+        {screen === "chat" && !showProfile && (
           <div className="flex flex-col w-full h-full max-w-3xl mx-auto" style={{ backgroundColor: "var(--bg)" }}>
             {/* Tab bar */}
             <div className="flex border-b" style={{ borderColor: "var(--border)" }}>
