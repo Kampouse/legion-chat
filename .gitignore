@@ -1,24 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Cloudflare
+.wrangler/
+.dev.vars
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Test scripts
+test-*.mjs
+test-*.cjs
+live-*.mjs
 
-# Editor directories and files
+# Lock files (using npm only)
+bun.lock
+pnpm-lock.yaml
+yarn.lock
+
+# Patches
+patches/
+
+# Editor
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# Environment
+*.local
